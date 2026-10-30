@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest cache
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Temporary files & reports
+*.tmp
+reports/*.html
+reports/*.json
+!reports/.gitkeep
