@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Office Document Malware Triage Report - sample_clean.docm</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 24px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: #1e293b; padding: 24px; border-radius: 12px; margin-bottom: 24px; border: 1px solid #334155; }
+        .badge { padding: 6px 14px; border-radius: 9999px; font-weight: 700; font-size: 0.85rem; display: inline-block; }
+        .badge.critical { background: #dc2626; color: white; }
+        .badge.high { background: #ea580c; color: white; }
+        .badge.medium { background: #d97706; color: white; }
+        .badge.low { background: #16a34a; color: white; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card { background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; }
+        .card h3 { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .card .value { font-size: 1.6rem; font-weight: bold; color: #38bdf8; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; background: #1e293b; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #334155; font-size: 0.9rem; }
+        th { background: #0f172a; color: #94a3b8; }
+        code { background: #0f172a; padding: 2px 6px; border-radius: 4px; color: #f43f5e; font-family: monospace; }
+        pre { background: #0f172a; padding: 14px; border-radius: 8px; overflow-x: auto; color: #a5f3fc; font-size: 0.85rem; border: 1px solid #334155; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1 style="margin: 0 0 8px 0;">Office Document Malware Triage Report</h1>
+                <div style="color: #94a3b8;">Sample: <strong>sample_clean.docm</strong></div>
+            </div>
+            <div style="text-align: right;">
+                <span class="badge" style="background-color: #16a34a; font-size: 1.2rem; padding: 10px 20px;">
+                    LOW (Score: 0/100)
+                </span>
+            </div>
+        </div>
+        <p style="margin: 16px 0 0 0; color: #cbd5e1;">Document exhibits minimal or benign behavior. No weaponization indicators observed.</p>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h3>SHA-256 Digest</h3>
+            <div style="font-family: monospace; font-size: 0.85rem; word-break: break-all; color: #38bdf8;">
+                8a5967b03fb630d1b26e10fdbf1836c447c0db3c6d8d4e3ef98141579a3b2976
+            </div>
+        </div>
+        <div class="card">
+            <h3>File Size & Format</h3>
+            <div class="value">1424 B</div>
+            <div style="color: #94a3b8; font-size: 0.85rem;">Format: OpenXML | Entropy: 7.2965</div>
+        </div>
+        <div class="card">
+            <h3>VBA Macros & SDI</h3>
+            <div class="value">None</div>
+            <div style="color: #94a3b8; font-size: 0.85rem;">Lines: 0 | SDI: 0.0</div>
+        </div>
+        <div class="card">
+            <h3>Findings & Patterns</h3>
+            <div class="value">0</div>
+            <div style="color: #94a3b8; font-size: 0.85rem;">Correlated Attack Patterns: 0</div>
+        </div>
+    </div>
+
+    <h2>Static Detections & Evidence</h2>
+    <table>
+        <thead>
+            <tr><th>Severity</th><th>Indicator</th><th>Category</th><th>Source</th><th>Evidence Snippet</th><th>Explanation</th></tr>
+        </thead>
+        <tbody>
+            <tr><td colspan="6" style="text-align:center;">No suspicious static indicators detected.</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Synthesized YARA Detection Signature</h2>
+    <pre>rule WeaponizedDoc_8a5967b0
+{
+    meta:
+        description = "Auto-generated detection rule for weaponized Office document sample"
+        author = "Automated Office Triage Engine"
+        date = "2026-10-30"
+        sha256 = "8a5967b03fb630d1b26e10fdbf1836c447c0db3c6d8d4e3ef98141579a3b2976"
+        original_file = "sample_clean.docm"
+        reference = "Static Analysis Detection Fusion"
+
+    strings:
+        $doc_hash = "8a5967b03fb630d1b26e10fdbf1836c447c0db3c6d8d4e3ef98141579a3b2976"
+
+    condition:
+        any of them
+}
+</pre>
+
+    <h2>Document Streams & Entropy</h2>
+    <table>
+        <thead>
+            <tr><th>Stream Name</th><th>Path</th><th>Size</th><th>Entropy</th><th>VBA Related</th></tr>
+        </thead>
+        <tbody>
+            
+            <tr>
+                <td>[Content_Types].xml</td>
+                <td>[Content_Types].xml</td>
+                <td>750 bytes</td>
+                <td>4.9227</td>
+                <td>No</td>
+            </tr>
+            
+            <tr>
+                <td>core.xml</td>
+                <td>docProps/core.xml</td>
+                <td>534 bytes</td>
+                <td>5.0184</td>
+                <td>No</td>
+            </tr>
+            
+            <tr>
+                <td>app.xml</td>
+                <td>docProps/app.xml</td>
+                <td>254 bytes</td>
+                <td>4.9598</td>
+                <td>No</td>
+            </tr>
+            
+            <tr>
+                <td>document.xml</td>
+                <td>word/document.xml</td>
+                <td>228 bytes</td>
+                <td>4.9781</td>
+                <td>No</td>
+            </tr>
+            
+        </tbody>
+    </table>
+
+    <h2>Analysis Limitations & Caveats</h2>
+    <ul>
+        <li>No macro streams or suspicious structures detected. Absence of indicators does not guarantee safety from zero-day exploits.</li>
+        <li>Static triage only. No live macro execution or process injection was performed.</li>
+    </ul>
+</div>
+</body>
+</html>

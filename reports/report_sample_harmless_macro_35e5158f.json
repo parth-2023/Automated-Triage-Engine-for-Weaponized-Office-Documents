@@ -1,0 +1,161 @@
+{
+  "sample_identity": {
+    "original_filename": "sample_harmless_macro.docm",
+    "safe_filename": "sample_harmless_macro.docm",
+    "file_size_bytes": 1720,
+    "hashes": {
+      "sha256": "35e5158fca4a466c7871e35329b40f133cca09f104de7ee930553c94d3a1d29b",
+      "sha1": "bfc2fe86527b6da1230d6fd060080c0106ab1007",
+      "md5": "104468625c0c0e6d655fbb5ec44388c8"
+    },
+    "file_entropy": 7.2956,
+    "detected_format": "OpenXML",
+    "extension": ".docm",
+    "is_valid": true,
+    "validation_notes": [
+      "Verified OpenXML ZIP container format (DOCM/XLSM)."
+    ]
+  },
+  "document_metadata": {
+    "format": "OpenXML",
+    "author": "Security Analyst",
+    "title": "Benign Test Document",
+    "subject": null,
+    "description": null,
+    "last_saved_by": null,
+    "create_time": "2026-01-01T00:00:00Z",
+    "last_saved_time": null,
+    "creating_application": "Microsoft Office Word",
+    "app_version": "16.0000",
+    "revision_number": "1"
+  },
+  "structural_analysis": {
+    "container_type": "OpenXML",
+    "stream_count": 6,
+    "has_vba_project": true,
+    "vba_project_location": "word/vbaProject.bin",
+    "max_stream_entropy": 5.0184,
+    "mean_stream_entropy": 3.6077,
+    "anomalies": [],
+    "streams": [
+      {
+        "name": "[Content_Types].xml",
+        "size_bytes": 750,
+        "entropy": 4.9227,
+        "storage_path": "[Content_Types].xml",
+        "is_vba_related": false,
+        "is_suspicious_entropy": false
+      },
+      {
+        "name": "core.xml",
+        "size_bytes": 534,
+        "entropy": 5.0184,
+        "storage_path": "docProps/core.xml",
+        "is_vba_related": false,
+        "is_suspicious_entropy": false
+      },
+      {
+        "name": "app.xml",
+        "size_bytes": 254,
+        "entropy": 4.9598,
+        "storage_path": "docProps/app.xml",
+        "is_vba_related": false,
+        "is_suspicious_entropy": false
+      },
+      {
+        "name": "document.xml",
+        "size_bytes": 228,
+        "entropy": 4.9781,
+        "storage_path": "word/document.xml",
+        "is_vba_related": false,
+        "is_suspicious_entropy": false
+      },
+      {
+        "name": "vbaProject.bin",
+        "size_bytes": 2048,
+        "entropy": 1.7674,
+        "storage_path": "word/vbaProject.bin",
+        "is_vba_related": true,
+        "is_suspicious_entropy": false
+      },
+      {
+        "name": "vbaProject.bin:VBA_Code",
+        "size_bytes": 0,
+        "entropy": 0.0,
+        "storage_path": "word/vbaProject.bin!VBA_Code",
+        "is_vba_related": true,
+        "is_suspicious_entropy": false
+      }
+    ]
+  },
+  "vba_extraction": {
+    "has_macros": false,
+    "module_count": 0,
+    "total_line_count": 0,
+    "modules": []
+  },
+  "static_detection_and_fusion": {
+    "raw_finding_count": 0,
+    "deduplicated_findings": [],
+    "correlated_patterns": []
+  },
+  "stomping_analysis": {
+    "is_stomped": false,
+    "sdi_score": 0.0,
+    "pcode_token_count": 0,
+    "analysis_status": "NOT_PERFORMED",
+    "discrepancies": []
+  },
+  "deobfuscation": [],
+  "extracted_payloads": [],
+  "shellcode_analysis": {
+    "is_likely_shellcode": false,
+    "architecture": "UNKNOWN",
+    "instruction_count": 0,
+    "heuristics": [],
+    "resolved_api_hashes": [],
+    "disassembly_preview": []
+  },
+  "feature_vector_18d": {
+    "f1_file_size_bytes": 1720,
+    "f2_ole_stream_count": 6,
+    "f3_has_vba_project": 1,
+    "f4_stomping_discrepancy": 0.0,
+    "f5_source_line_count": 0,
+    "f6_pcode_token_count": 0,
+    "f7_max_stream_entropy": 5.0184,
+    "f8_mean_stream_entropy": 3.6077,
+    "f9_suspicious_keyword_count": 0,
+    "f10_obfuscated_chr_count": 0,
+    "f11_strreverse_calls": 0,
+    "f12_win32_api_declarations": 0,
+    "f13_has_memory_alloc_api": 0,
+    "f14_has_memory_copy_api": 0,
+    "f15_has_thread_create_api": 0,
+    "f16_extracted_payload_bytes": 0,
+    "f17_resolved_api_hash_count": 0,
+    "f18_has_c2_network_indicator": 0
+  },
+  "synthesized_yara_rule": {
+    "rule_name": "WeaponizedDoc_35e5158f",
+    "is_valid_syntax": true,
+    "rule_text": "rule WeaponizedDoc_35e5158f\n{\n    meta:\n        description = \"Auto-generated detection rule for weaponized Office document sample\"\n        author = \"Automated Office Triage Engine\"\n        date = \"2026-10-30\"\n        sha256 = \"35e5158fca4a466c7871e35329b40f133cca09f104de7ee930553c94d3a1d29b\"\n        original_file = \"sample_harmless_macro.docm\"\n        reference = \"Static Analysis Detection Fusion\"\n\n    strings:\n        $doc_hash = \"35e5158fca4a466c7871e35329b40f133cca09f104de7ee930553c94d3a1d29b\"\n\n    condition:\n        any of them\n}\n"
+  },
+  "risk_assessment": {
+    "raw_score": 0.0,
+    "normalized_score": 0,
+    "classification": "LOW",
+    "category_scores": {
+      "EXECUTION": 0.0,
+      "INJECTION": 0.0,
+      "OBFUSCATION": 0.0,
+      "STOMPING": 0.0,
+      "PAYLOAD": 0.0
+    },
+    "applied_bonuses": [],
+    "explanation": "Document exhibits minimal or benign behavior. No weaponization indicators observed.",
+    "limitations": [
+      "No macro streams or suspicious structures detected. Absence of indicators does not guarantee safety from zero-day exploits."
+    ]
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "sample_identity": {
+    "original_filename": "sample_corrupt.doc",
+    "safe_filename": "sample_corrupt.doc",
+    "file_size_bytes": 31,
+    "hashes": {
+      "sha256": "2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e",
+      "sha1": "5044ed26dd5f88b277667b0809e424dc34246143",
+      "md5": "d8ec879c78edbc90d43fd20e6bced886"
+    },
+    "file_entropy": 4.2847,
+    "detected_format": "OLE",
+    "extension": ".doc",
+    "is_valid": true,
+    "validation_notes": [
+      "Verified OLE Compound File Binary format (DOC/XLS)."
+    ]
+  },
+  "document_metadata": {
+    "format": "OLE",
+    "author": null,
+    "title": null,
+    "subject": null,
+    "comments": null,
+    "last_saved_by": null,
+    "create_time": null,
+    "last_saved_time": null,
+    "creating_application": null,
+    "revision_number": null,
+    "total_edit_time": null,
+    "error": "OLE metadata extraction error: not an OLE2 structured storage file"
+  },
+  "structural_analysis": {
+    "container_type": "OLE",
+    "stream_count": 0,
+    "has_vba_project": false,
+    "vba_project_location": null,
+    "max_stream_entropy": 0.0,
+    "mean_stream_entropy": 0.0,
+    "anomalies": [],
+    "streams": []
+  },
+  "vba_extraction": {
+    "has_macros": false,
+    "module_count": 0,
+    "total_line_count": 0,
+    "modules": []
+  },
+  "static_detection_and_fusion": {
+    "raw_finding_count": 0,
+    "deduplicated_findings": [],
+    "correlated_patterns": []
+  },
+  "stomping_analysis": {
+    "is_stomped": false,
+    "sdi_score": 0.0,
+    "pcode_token_count": 0,
+    "analysis_status": "NOT_PERFORMED",
+    "discrepancies": []
+  },
+  "deobfuscation": [],
+  "extracted_payloads": [],
+  "shellcode_analysis": {
+    "is_likely_shellcode": false,
+    "architecture": "UNKNOWN",
+    "instruction_count": 0,
+    "heuristics": [],
+    "resolved_api_hashes": [],
+    "disassembly_preview": []
+  },
+  "feature_vector_18d": {
+    "f1_file_size_bytes": 31,
+    "f2_ole_stream_count": 0,
+    "f3_has_vba_project": 0,
+    "f4_stomping_discrepancy": 0.0,
+    "f5_source_line_count": 0,
+    "f6_pcode_token_count": 0,
+    "f7_max_stream_entropy": 0.0,
+    "f8_mean_stream_entropy": 0.0,
+    "f9_suspicious_keyword_count": 0,
+    "f10_obfuscated_chr_count": 0,
+    "f11_strreverse_calls": 0,
+    "f12_win32_api_declarations": 0,
+    "f13_has_memory_alloc_api": 0,
+    "f14_has_memory_copy_api": 0,
+    "f15_has_thread_create_api": 0,
+    "f16_extracted_payload_bytes": 0,
+    "f17_resolved_api_hash_count": 0,
+    "f18_has_c2_network_indicator": 0
+  },
+  "synthesized_yara_rule": {
+    "rule_name": "WeaponizedDoc_2de0ce1c",
+    "is_valid_syntax": true,
+    "rule_text": "rule WeaponizedDoc_2de0ce1c\n{\n    meta:\n        description = \"Auto-generated detection rule for weaponized Office document sample\"\n        author = \"Automated Office Triage Engine\"\n        date = \"2026-10-30\"\n        sha256 = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n        original_file = \"sample_corrupt.doc\"\n        reference = \"Static Analysis Detection Fusion\"\n\n    strings:\n        $doc_hash = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n\n    condition:\n        any of them\n}\n"
+  },
+  "risk_assessment": {
+    "raw_score": 0,
+    "normalized_score": 0,
+    "classification": "INCONCLUSIVE",
+    "category_scores": {},
+    "applied_bonuses": [],
+    "explanation": "Document structure is malformed or corrupt. Analysis is inconclusive.",
+    "limitations": [
+      "Container structure could not be parsed."
+    ]
+  }
+}
