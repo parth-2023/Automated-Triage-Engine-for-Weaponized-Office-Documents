@@ -8,7 +8,7 @@
 | Phase 2 | Static Detection, Detection Fusion & Risk Assessment | Implemented & Tested | 10 | PASS |
 | Phase 3 | Advanced VBA Analysis, Stomping & Payload Extraction | Implemented & Tested | 10 | PASS |
 | Phase 4 | Gradio Dashboard & Analyst Reporting | In Progress | 0 | Pending |
-| Phase 5 | Shellcode Analysis & ROR13 API Hash Resolution | Not Started | 0 | Pending |
+| Phase 5 | Shellcode Analysis & ROR13 API Hash Resolution | Implemented & Tested | 7 | PASS |
 | Phase 6 | YARA Synthesis & End-to-End Integration | Not Started | 0 | Pending |
 
 ---
