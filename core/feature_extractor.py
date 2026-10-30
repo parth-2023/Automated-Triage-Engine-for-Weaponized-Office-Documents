@@ -29,7 +29,7 @@ from core.vba_extractor import VBAExtractionResult
 from core.fusion import FusedDetectionResult
 
 # ---------------------------------------------------------------------------
-# Feature availability states
+# Feature availability states and ML numeric encoding specifications
 # ---------------------------------------------------------------------------
 
 class FeatureState:
@@ -40,11 +40,25 @@ class FeatureState:
     FAILED         = "FAILED"          # analysis attempted but errored
 
 
+# Distinct default numeric sentinels for ML preparation:
+# Guaranteed convention:
+#   NOT_DETECTED    ->  0.0   (verified indicator absence)
+#   NOT_APPLICABLE  -> -1.0   (feature not applicable to container format)
+#   UNAVAILABLE     -> -2.0   (dependency missing or unperformed)
+#   FAILED          -> -3.0   (analysis error/parsing exception)
+DEFAULT_STATE_SENTINELS: Dict[str, float] = {
+    FeatureState.NOT_DETECTED: 0.0,
+    FeatureState.NOT_APPLICABLE: -1.0,
+    FeatureState.UNAVAILABLE: -2.0,
+    FeatureState.FAILED: -3.0,
+}
+
+
 @dataclass
 class FeatureEntry:
     """Single feature with its value AND availability state."""
     name: str
-    value: Optional[float]       # None when state is UNAVAILABLE or FAILED
+    value: Optional[float]       # None when state is UNAVAILABLE, FAILED, or NOT_APPLICABLE
     state: str                   # one of FeatureState constants
     note: str = ""               # human-readable explanation of state when not MEASURED
 
@@ -142,23 +156,57 @@ class DocumentFeatureVector:
             out[fe.name] = {"value": fe.value, "state": fe.state, "note": fe.note}
         return out
 
-    def to_numeric_list(self, missing_sentinel: float = -1.0) -> List[float]:
+    def to_numeric_list(
+        self,
+        missing_sentinel: Optional[float] = None,
+        state_sentinels: Optional[Dict[str, float]] = None
+    ) -> List[float]:
         """
-        Convert features to a numeric list for ML pipelines.
+        Convert features to an ML-compatible numeric vector.
 
-        Convention:
-          - MEASURED / NOT_DETECTED → actual numeric value
-          - UNAVAILABLE / FAILED / NOT_APPLICABLE → missing_sentinel (default -1.0)
-
-        Callers must be aware that -1.0 does NOT mean zero.
+        Distinguishes feature states to prevent conflating missing values with measured zeros:
+          - If state_sentinels is provided, uses that mapping.
+          - If missing_sentinel is explicitly provided (legacy compatibility),
+            maps all unmeasured states (NOT_APPLICABLE, UNAVAILABLE, FAILED) to missing_sentinel.
+          - If neither is provided (canonical default), uses authoritative distinct sentinels:
+              NOT_DETECTED    ->  0.0  (indicator explicitly verified absent)
+              NOT_APPLICABLE  -> -1.0  (feature does not apply to this file format)
+              UNAVAILABLE     -> -2.0  (dependency or parsing capability was absent)
+              FAILED          -> -3.0  (analysis was attempted but crashed/failed)
         """
-        result = []
+        sentinels = state_sentinels or DEFAULT_STATE_SENTINELS
+        result: List[float] = []
+
         for fe in self._feature_list():
             if fe.value is not None:
                 result.append(float(fe.value))
+            elif missing_sentinel is not None:
+                # Legacy override mode
+                result.append(float(missing_sentinel))
             else:
-                result.append(missing_sentinel)
+                # Authoritative distinct encoding
+                sentinel_val = sentinels.get(fe.state, -1.0)
+                result.append(float(sentinel_val))
+
         return result
+
+    def to_encoded_vector(self) -> Dict[str, Any]:
+        """
+        Return structured representation containing numeric vector, state list,
+        and state-encoding documentation for downstream ML consumers.
+        """
+        return {
+            "numeric_vector": self.to_numeric_list(),
+            "feature_names": [fe.name for fe in self._feature_list()],
+            "feature_states": [fe.state for fe in self._feature_list()],
+            "encoding_convention": {
+                "MEASURED": "float(actual_value)",
+                "NOT_DETECTED": 0.0,
+                "NOT_APPLICABLE": -1.0,
+                "UNAVAILABLE": -2.0,
+                "FAILED": -3.0
+            }
+        }
 
     # Legacy compatibility shim — returns same shape as old to_dict()
     def to_list(self) -> List[Any]:

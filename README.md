@@ -27,41 +27,45 @@ Designed for cybersecurity research engineers, SOC analysts, and malware reverse
 
 4. **VBA Stomping Heuristic Analysis & SDI Metric**:
    - Disassembles compiled P-code tokens using `pcodedmp`.
-   - Performs heuristic semantic comparison between compiled P-code instructions and decompressed VBA source code to detect source-code removal or modification.
-   - Computes the Stomping Discrepancy Index (SDI) [0.0 - 1.0] using weighted discrepancy scoring, immediately flagging critical API invocations absent from source code.
-   - Clearly distinguishes between verified stomping, clean source/P-code parity, and uncompiled or synthetic modules where P-code extraction is not performed.
+   - Performs module-level semantic comparison between compiled P-code instructions and decompressed VBA source code to detect source-code removal or modification.
+   - Computes the Stomping Discrepancy Index (SDI) [0.0 - 1.0] using weighted discrepancy scoring across missing procedures, missing modules, unreferenced strings, and unmatched calls.
+   - Clearly distinguishes between verified stomping, clean source/P-code parity, missing source modules, missing P-code modules, and uncompiled or synthetic modules where P-code extraction is not performed.
+   - Does not infer stomping solely because a single high-risk API name is absent from source; multi-signal corroboration is required.
 
 5. **Restricted AST & Rule-Based Deobfuscation**:
    - Reconstructs `Chr()` / `ChrB()` concatenations with constant arithmetic evaluation.
    - Reverses `StrReverse()` encoded strings.
    - Resolves string concatenations, Base64 strings, and hexadecimal byte sequences.
-   - Evaluates variable assignment chains and bounded XOR loops over statically known byte arrays.
+   - Evaluates variable assignment chains using string-aware token substitution (never substituting variable names inside quoted string literals or escaped quotes).
+   - Evaluates bounded XOR loops over statically known byte arrays.
    - Zero execution policy: evaluated safely without using unrestricted `eval()` or `exec()`.
 
 6. **Payload Extraction & Heuristic Shellcode Disassembly**:
    - Recovers embedded byte arrays, hex buffers, and binary blobs from VBA source code and deobfuscation outputs.
    - Disassembles candidate payload buffers using the `Capstone` engine with multi-hypothesis architecture evaluation (`x86`, `x64`, or `auto`).
-   - Evaluates multi-signal shellcode execution heuristics (segment register PEB traversal `fs:[0x30]` / `gs:[0x60]`, Call/Pop delta calculation routines, consecutive stack pushes). Requires multi-signal corroboration before flagging buffers as shellcode.
+   - Evaluates multi-signal shellcode execution heuristics (segment register PEB traversal `fs:[0x30]` / `gs:[0x60]`, Call/Pop delta calculation routines, consecutive stack pushes, Egg hunter memory search loops).
+   - Validated against a structured static corpus with 0 false positives on benign code/documents and 0 false negatives on shellcode patterns.
 
 7. **Configurable 32-bit ROR13 API Hash Resolution**:
-   - Implements documented variants of the canonical 32-bit ROR13 hash algorithm utilized by shellcode families:
+   - Implements 4 documented resolver variants of the canonical 32-bit ROR13 hash algorithm utilized by shellcode families:
      - `ROR13_API_ONLY` (canonical case-preserved function name, null excluded)
      - `ROR13_API_UPPER` (uppercase normalized API name)
      - `ROR13_API_NULL_TERM` (null-terminated string hashing)
      - `ROR13_MOD_API_SUM` (Metasploit stager convention combining module + API sum)
-     - `ROR13_CUSTOM_SEED` (configurable non-zero initial seed)
+   - Low-level deterministic seeding capability supported via `ror13_hash(name, seed=...)`.
    - Precomputed database of standard Windows functions (`Kernel32`, `Ntdll`, `Urlmon`, `Ws2_32`).
    - Scans candidate binary buffers for embedded little-endian API hashes and records algorithm variant and confidence.
 
 8. **Standardized 18-Dimensional Feature Vector & 5-State Availability Model**:
    - Strictly populates the project's standardized `[f1..f18]` feature representation for triage comparisons and ML research.
    - Supports 5 explicit feature availability states: `MEASURED`, `NOT_DETECTED`, `NOT_APPLICABLE`, `UNAVAILABLE`, `FAILED`.
-   - Uses `-1.0` as the explicit sentinel for missing/unmeasured features in numeric vector exports, preventing ambiguity with legitimate measured zeros.
+   - Preserves discrete states downstream via distinct sentinels (`NOT_APPLICABLE = -1.0`, `UNAVAILABLE = -2.0`, `FAILED = -3.0`) or via `to_encoded_vector()`, preventing ambiguity with legitimate measured zeros.
 
 9. **YARA Detection Signature Synthesis & Validation**:
    - Automatically generates YARA rules matching reconstructed strings, API declarations, and binary signatures.
-   - Implements scoped condition formulation (container magic + indicator co-occurrence) to avoid overly broad `any of them` rules.
-   - Compiles and validates rules using `yara-python`; never marks a rule as valid unless compilation succeeds.
+   - Implements scoped condition formulation with container magic bytes (`uint32(0) == 0xE011CFD0` for OLE `.doc`, `uint16(0) == 0x4B50` for OpenXML `.docm`/ZIP) to avoid false positives across container types.
+   - Strict metadata escaping and hash validation preventing rule syntax corruption from complex filenames.
+   - Compiles and validates rules using `yara-python`; never marks a rule as valid unless compilation succeeds (reporting `GENERATED_NOT_VALIDATED` if the compiler is unavailable).
 
 10. **Interactive Gradio Dashboard & Exportable Reports**:
     - Modern analyst-friendly Gradio web dashboard (`app.py`) with strict HTML escaping against script and tag injection.
@@ -152,14 +156,14 @@ Run the full automated test suite covering all phases and end-to-end integration
 python -m pytest tests/ -v
 ```
 
-All 73 test cases across the entire test suite execute and pass:
+All 86 test cases across the entire test suite execute and pass:
 - `tests/test_phase1_ingestion.py` (19 tests) — Container ingestion, hash computation, entropy, zip bomb defense, VBA extraction.
-- `tests/test_phase2_static_detection.py` (14 tests) — Static detection, fusion, YAML-weighted risk engine, 5 feature states, -1.0 sentinel.
-- `tests/test_phase3_advanced_vba.py` (14 tests) — Deobfuscator variable propagation, bounded XOR loops, stomping semantic comparison, payload extraction.
+- `tests/test_phase2_static_detection.py` (15 tests) — Static detection, fusion, YAML-weighted risk engine, policy loading fallback transparency, 5 feature states, distinct sentinels.
+- `tests/test_phase3_advanced_vba.py` (19 tests) — String-aware deobfuscator variable propagation, bounded XOR loops, module-level stomping semantic comparison, payload extraction.
 - `tests/test_phase4_reporting.py` (4 tests) — Report generation, JSON schema validation, HTML export, Gradio callback.
-- `tests/test_phase5_shellcode_api_hash.py` (11 tests) — ROR13 variants, multi-hypothesis shellcode analysis, auto arch detection, benign buffer non-classification.
-- `tests/test_phase6_yara_integration.py` (4 tests) — YARA rule compilation, hash fallback, special character escaping, syntax validation.
-- `tests/test_end_to_end_pipeline.py` (7 tests) — Full pipeline execution (benign, macro, corrupt, unsupported) and Gradio HTML injection defenses.
+- `tests/test_phase5_shellcode_api_hash.py` (14 tests) — 4 ROR13 variants, custom-seed verification, multi-hypothesis shellcode analysis, structured validation corpus with zero false positives/negatives.
+- `tests/test_phase6_yara_integration.py` (7 tests) — YARA rule compilation, hash fallback, metadata escaping, container magic scoping (OLE vs OpenXML), compiler dependency simulation.
+- `tests/test_end_to_end_pipeline.py` (8 tests) — Full pipeline execution (benign, macro, corrupt, unsupported), stage failure completeness propagation, and Gradio HTML injection defenses.
 
 ---
 

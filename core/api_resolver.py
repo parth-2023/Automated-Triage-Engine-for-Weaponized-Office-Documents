@@ -28,8 +28,11 @@ SUPPORTED HASHING VARIANTS & SPECIFICATIONS:
    - Metasploit stager convention combining module hash and function hash:
      hash = (ROR13(module_name) + ROR13(api_name)) & 0xFFFFFFFF
 
-5. ROR13_CUSTOM_SEED:
-   - ROR13 with a configurable non-zero initial seed.
+NOTE ON CUSTOM SEEDS:
+  The low-level helper `ror13_hash(name, seed=...)` supports an optional non-zero initial
+  seed for deterministic custom hashing. However, `ApiHashResolver` resolves hashes against
+  the 4 standard zero-seed variants above; it does not claim to enumerate or dynamically
+  resolve arbitrary custom seeds without an explicit precomputed reference table.
 
 LIMITATIONS:
   - When a hash value does not match known Windows APIs in the reference database,

@@ -118,24 +118,46 @@ class RestrictedVbaDeobfuscator:
             if op == "*": return a * b
         return None
 
+    # String literal token matching (including escaped double quotes "")
+    QUOTED_STRING_TOKEN = re.compile(r'("(?:[^"]|"")*")')
+
     @classmethod
     def _substitute_vars(cls, text: str, var_table: Dict[str, str], depth: int = 0) -> str:
-        """Replace variable references with their known string values (bounded depth)."""
-        if depth >= MAX_RECURSION:
+        """
+        Replace variable references with their known string values (bounded depth).
+        String-aware token substitution: NEVER replaces variable names inside quoted literals.
+        """
+        if depth >= MAX_RECURSION or len(text) > MAX_EXPR_LEN or not var_table:
             return text
+
         changed = True
         result = text
         iterations = 0
+
         while changed and iterations < 20:
             changed = False
             iterations += 1
+
+            # Split line into quoted string literals and non-quoted code segments
+            # Even-indexed segments are code; odd-indexed segments are string literals
+            segments = cls.QUOTED_STRING_TOKEN.split(result)
+
             for var_name, var_val in var_table.items():
-                # Match: varname (not inside a string literal)
-                pattern = re.compile(r'\b' + re.escape(var_name) + r'\b', re.IGNORECASE)
-                new_result = pattern.sub(f'"{var_val}"', result)
-                if new_result != result:
-                    result = new_result
-                    changed = True
+                var_pattern = re.compile(r'\b' + re.escape(var_name) + r'\b', re.IGNORECASE)
+                escaped_val = var_val.replace('"', '""')
+                replacement = f'"{escaped_val}"'
+
+                for i in range(0, len(segments), 2):
+                    code_seg = segments[i]
+                    new_seg = var_pattern.sub(replacement, code_seg)
+                    if new_seg != code_seg:
+                        segments[i] = new_seg
+                        changed = True
+
+            result = "".join(segments)
+            if len(result) > MAX_EXPR_LEN:
+                break
+
         return result
 
     # -------------------------------------------------------------------------

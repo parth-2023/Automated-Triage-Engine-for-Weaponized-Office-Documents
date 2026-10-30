@@ -41,6 +41,14 @@ import yaml
 from core.fusion import FusedDetectionResult
 
 
+class PolicyLoadingStatus:
+    DEFAULT = "DEFAULT"                                # Builtin default policy
+    LOADED_CUSTOM = "LOADED_CUSTOM"                    # Custom YAML policy loaded successfully
+    FALLBACK_NOT_FOUND = "FALLBACK_NOT_FOUND"          # Specified YAML file does not exist
+    FALLBACK_PARSE_ERROR = "FALLBACK_PARSE_ERROR"      # YAML syntax/parsing error
+    FALLBACK_INVALID_SCHEMA = "FALLBACK_INVALID_SCHEMA"# YAML was empty or not a mapping
+
+
 @dataclass
 class RiskAssessmentVerdict:
     """Complete, explainable risk assessment output."""
@@ -53,6 +61,9 @@ class RiskAssessmentVerdict:
     explanation: str
     analysis_status: str = "COMPLETED"         # reflects pipeline analysis completeness
     limitations: List[str] = field(default_factory=list)
+    policy_status: str = PolicyLoadingStatus.DEFAULT
+    policy_source: str = "BUILTIN_DEFAULT"
+    policy_error: Optional[str] = None
 
 
 DEFAULT_POLICY = {
@@ -78,15 +89,35 @@ class RiskEngine:
     """Deterministic, policy-driven risk scoring engine."""
 
     def __init__(self, policy_path: Optional[Path] = None):
+        self.policy_path = policy_path
         self.policy = DEFAULT_POLICY
-        if policy_path and policy_path.exists():
-            try:
-                with open(policy_path, "r", encoding="utf-8") as f:
-                    loaded = yaml.safe_load(f)
+        self.policy_status = PolicyLoadingStatus.DEFAULT
+        self.policy_source = "BUILTIN_DEFAULT"
+        self.policy_error: Optional[str] = None
+
+        if policy_path is not None:
+            path_obj = Path(policy_path)
+            if not path_obj.exists():
+                self.policy_status = PolicyLoadingStatus.FALLBACK_NOT_FOUND
+                self.policy_source = "FALLBACK_DEFAULT"
+                self.policy_error = f"Policy file not found: {path_obj}"
+            else:
+                try:
+                    with open(path_obj, "r", encoding="utf-8") as f:
+                        loaded = yaml.safe_load(f)
                     if loaded and isinstance(loaded, dict):
                         self.policy = loaded
-            except Exception:
-                pass  # Fall back to default policy
+                        self.policy_status = PolicyLoadingStatus.LOADED_CUSTOM
+                        self.policy_source = f"FILE: {path_obj.name}"
+                        self.policy_error = None
+                    else:
+                        self.policy_status = PolicyLoadingStatus.FALLBACK_INVALID_SCHEMA
+                        self.policy_source = "FALLBACK_DEFAULT"
+                        self.policy_error = "Policy file was empty or did not contain a valid mapping."
+                except Exception as e:
+                    self.policy_status = PolicyLoadingStatus.FALLBACK_PARSE_ERROR
+                    self.policy_source = "FALLBACK_DEFAULT"
+                    self.policy_error = f"YAML parse error: {str(e)}"
 
     def _get_indicator_weight(self, indicator_name: str, severity: str) -> float:
         """
@@ -179,7 +210,10 @@ class RiskEngine:
                 applied_bonuses=[],
                 explanation="File signature does not match supported OLE/OpenXML formats. Analysis cannot proceed.",
                 analysis_status="UNSUPPORTED",
-                limitations=["Format validation failed — file is not a recognised Office document."]
+                limitations=["Format validation failed — file is not a recognised Office document."],
+                policy_status=self.policy_status,
+                policy_source=self.policy_source,
+                policy_error=self.policy_error
             )
 
         if is_corrupt:
@@ -192,7 +226,10 @@ class RiskEngine:
                 applied_bonuses=[],
                 explanation="Document structure is malformed or corrupt. Analysis is inconclusive.",
                 analysis_status="INVALID_INPUT",
-                limitations=["Container structure could not be parsed."]
+                limitations=["Container structure could not be parsed."],
+                policy_status=self.policy_status,
+                policy_source=self.policy_source,
+                policy_error=self.policy_error
             )
 
         # Retrieve policy parameters
@@ -303,16 +340,20 @@ class RiskEngine:
 
         # --- Incomplete analysis warnings and verdict adjustment ---
         if analysis_status == "PARTIAL":
-            if normalized <= thresholds.get("low_max", 19):
-                classification = "PARTIAL"
-                security_verdict = "INCOMPLETE ANALYSIS — VERDICT UNVERIFIED"
-                explanation = (
-                    "One or more analysis stages could not be completed. "
-                    "Although no weaponization indicators were identified in the completed stages, "
-                    "the document cannot be confirmed clean because analysis was incomplete."
-                )
-            else:
-                security_verdict = f"{security_verdict} (ANALYSIS PARTIAL)"
+            # A PARTIAL analysis status ALWAYS overrides classification to "PARTIAL"
+            # regardless of the computed score.  A document that could not be fully
+            # analysed must NOT be presented with a confident threat band.
+            classification = "PARTIAL"
+            security_verdict = (
+                "INCOMPLETE ANALYSIS — VERDICT UNVERIFIED"
+                if normalized <= thresholds.get("low_max", 19)
+                else f"INCOMPLETE ANALYSIS ({security_verdict})"
+            )
+            explanation = (
+                "One or more analysis stages could not be completed. "
+                "The risk score reflects only the evidence that was successfully obtained. "
+                "The document may pose a higher risk than the score indicates."
+            )
 
             limitations.append(
                 "INCOMPLETE ANALYSIS (PARTIAL): One or more analysis stages could not be completed. "
@@ -325,6 +366,15 @@ class RiskEngine:
                 "Absence of indicators does not guarantee safety from zero-day exploits."
             )
 
+        if self.policy_status in (
+            PolicyLoadingStatus.FALLBACK_NOT_FOUND,
+            PolicyLoadingStatus.FALLBACK_PARSE_ERROR,
+            PolicyLoadingStatus.FALLBACK_INVALID_SCHEMA
+        ):
+            limitations.append(
+                f"Risk policy configuration fallback: {self.policy_status} ({self.policy_error}). Using default policy."
+            )
+
         return RiskAssessmentVerdict(
             raw_score=round(raw_score, 1),
             normalized_score=normalized,
@@ -334,5 +384,8 @@ class RiskEngine:
             applied_bonuses=applied_bonuses,
             explanation=explanation,
             analysis_status=analysis_status,
-            limitations=limitations
+            limitations=limitations,
+            policy_status=self.policy_status,
+            policy_source=self.policy_source,
+            policy_error=self.policy_error
         )

@@ -149,6 +149,51 @@ class TestRiskEngine:
         assert v_med.classification == "MEDIUM"
         assert 20 <= v_med.normalized_score <= 49
 
+    def test_policy_loading_and_fallback(self, tmp_path):
+        from core.risk_engine import PolicyLoadingStatus
+        # 1. Missing policy file
+        missing_path = tmp_path / "non_existent_policy.yaml"
+        engine_missing = RiskEngine(missing_path)
+        assert engine_missing.policy_status == PolicyLoadingStatus.FALLBACK_NOT_FOUND
+        assert "not found" in engine_missing.policy_error
+        v_missing = engine_missing.evaluate(DetectionFusionEngine.fuse([]))
+        assert any("FALLBACK_NOT_FOUND" in lim for lim in v_missing.limitations)
+
+        # 2. Malformed policy file
+        bad_yaml = tmp_path / "bad_policy.yaml"
+        bad_yaml.write_text("thresholds: [unclosed list...", encoding="utf-8")
+        engine_bad = RiskEngine(bad_yaml)
+        assert engine_bad.policy_status == PolicyLoadingStatus.FALLBACK_PARSE_ERROR
+        assert "YAML parse error" in engine_bad.policy_error
+        v_bad = engine_bad.evaluate(DetectionFusionEngine.fuse([]))
+        assert any("FALLBACK_PARSE_ERROR" in lim for lim in v_bad.limitations)
+
+        # 3. Valid policy file
+        good_yaml = tmp_path / "good_policy.yaml"
+        good_yaml.write_text("""
+thresholds:
+  low_max: 15
+  medium_max: 45
+  high_max: 75
+  critical_min: 76
+category_caps:
+  EXECUTION: 50
+severity_weights:
+  INFO: 0
+  LOW: 10
+diminishing_returns:
+  first: 1.0
+  second: 0.3
+  subsequent: 0.1
+base_weights:
+  document_open: 25
+""", encoding="utf-8")
+        engine_good = RiskEngine(good_yaml)
+        assert engine_good.policy_status == PolicyLoadingStatus.LOADED_CUSTOM
+        assert engine_good.policy_error is None
+        v_good = engine_good.evaluate(DetectionFusionEngine.fuse([]))
+        assert v_good.policy_status == PolicyLoadingStatus.LOADED_CUSTOM
+
 
 class TestFeatureExtractor:
     def test_feature_states_and_sentinel(self):
@@ -173,16 +218,36 @@ class TestFeatureExtractor:
         assert vec.f16_extracted_payload_bytes.state == FeatureState.UNAVAILABLE
         assert vec.f17_resolved_api_hash_count.state == FeatureState.FAILED
 
-        # Check numeric list with -1.0 sentinel
+        # Check authoritative distinct default encoding:
+        # NOT_APPLICABLE -> -1.0, UNAVAILABLE -> -2.0, FAILED -> -3.0
+        num_list_distinct = vec.to_numeric_list()
+        assert len(num_list_distinct) == 18
+        assert num_list_distinct[3] == -1.0   # f4: NOT_APPLICABLE
+        assert num_list_distinct[5] == -1.0   # f6: NOT_APPLICABLE
+        assert num_list_distinct[15] == -2.0  # f16: UNAVAILABLE
+        assert num_list_distinct[16] == -3.0  # f17: FAILED
+
+        # Check structured ML encoded vector output
+        encoded = vec.to_encoded_vector()
+        assert "numeric_vector" in encoded
+        assert "feature_states" in encoded
+        assert "encoding_convention" in encoded
+        assert encoded["encoding_convention"]["UNAVAILABLE"] == -2.0
+        assert encoded["encoding_convention"]["FAILED"] == -3.0
+
+        # Check custom state sentinels override
+        custom_sentinels = {FeatureState.NOT_APPLICABLE: -99.0, FeatureState.UNAVAILABLE: -88.0, FeatureState.FAILED: -77.0}
+        num_list_custom = vec.to_numeric_list(state_sentinels=custom_sentinels)
+        assert num_list_custom[3] == -99.0
+        assert num_list_custom[15] == -88.0
+        assert num_list_custom[16] == -77.0
+
+        # Check legacy override mode with single missing_sentinel
         num_list_missing = vec.to_numeric_list(missing_sentinel=-1.0)
         assert len(num_list_missing) == 18
-        # f4 is NOT_APPLICABLE -> should be -1.0
         assert num_list_missing[3] == -1.0
-        # f6 is NOT_APPLICABLE -> should be -1.0
         assert num_list_missing[5] == -1.0
-        # f16 is UNAVAILABLE -> should be -1.0
         assert num_list_missing[15] == -1.0
-        # f17 is FAILED -> should be -1.0
         assert num_list_missing[16] == -1.0
 
         # Check default sentinel 0.0

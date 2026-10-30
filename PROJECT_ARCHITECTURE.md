@@ -103,19 +103,26 @@ To prevent ambiguity between an indicator legitimately not found versus an unper
 - `UNAVAILABLE`: The required dependency or parsing capability was missing (e.g. pcodedmp or Capstone not installed).
 - `FAILED`: Analysis was attempted but encountered an unhandled exception or malformed input.
 
-For machine learning integration, `to_numeric_list(missing_sentinel=-1.0)` explicitly encodes unmeasured/unavailable features as `-1.0`, keeping `0.0` reserved solely for verified absence.
+For machine learning integration and downstream consumers:
+- `to_numeric_list()` by default maps each non-measured state to distinct sentinels (`NOT_DETECTED=0.0`, `NOT_APPLICABLE=-1.0`, `UNAVAILABLE=-2.0`, `FAILED=-3.0`), ensuring downstream consumers never conflate distinct absence/failure states with measured zeros.
+- `to_encoded_vector()` exports a complete dictionary payload preserving categorical states, feature names, and encoding metadata alongside the numeric vector.
 
 #### B. Supported ROR13 API Hashing Variants (`core/api_resolver.py`)
-The engine implements 5 explicit variants of 32-bit ROR13 export hashing:
+The engine implements 4 explicit resolver variants of 32-bit ROR13 export hashing:
 1. `ROR13_API_ONLY`: Canonical 32-bit right-rotation by 13 bits, seed 0, ASCII case-preserved, null byte excluded.
 2. `ROR13_API_UPPER`: Function name converted to uppercase prior to hashing.
 3. `ROR13_API_NULL_TERM`: Hashing includes trailing `\x00` null byte.
 4. `ROR13_MOD_API_SUM`: Metasploit stager convention combining `(ROR13(module) + ROR13(api)) & 0xFFFFFFFF`.
-5. `ROR13_CUSTOM_SEED`: Configurable non-zero seed hash computation.
+
+The low-level helper `ror13_hash(name, seed=...)` supports non-zero seeds as a deterministic utility, but the resolver explicitly does not claim to dynamically resolve arbitrary custom seeds without a precomputed reference table.
 
 #### C. VBA Stomping Heuristics (`core/stomping_detector.py`)
-Semantic divergence is evaluated by comparing parsed P-code procedures, calls, and string literals against VBA source tokens. Critical Win32 API invocations (e.g. `Shell`, `VirtualAlloc`, `CreateThread`) present in compiled P-code but absent in VBA source code immediately elevate the Stomping Discrepancy Index (SDI) to $\ge 0.80$ with `CRITICAL` severity.
+Semantic divergence is evaluated at the module level by aligning parsed P-code modules with readable VBA source modules. The detector distinguishes missing source modules, missing P-code modules, and token-level discrepancies. Cross-module verification prevents false positives when procedures are called across modules. To prevent over-interpretation, stomping is never inferred solely from an isolated high-risk API call without corroborating evidence, and SDI is explicitly heuristic.
 
-#### D. YARA Rule Validation (`core/yara_synthesizer.py`)
-Generated rules are never marked valid or compiled unless they successfully compile with `yara.compile()`. Overly broad `any of them` conditions are prohibited in favor of multi-indicator synergy rules, and empty indicator sets fall back to precise SHA-256 hash assertions.
+#### D. YARA Rule Validation & Container Scoping (`core/yara_synthesizer.py`)
+Generated rules include container magic byte scoping (`uint32(0) == 0xE011CFD0` for OLE documents, `uint16(0) == 0x4B50` for OpenXML / ZIP documents) to prevent cross-container false positives. Document-derived metadata (filenames, SHA-256) is sanitized and escaped against syntax injection. Rules are compiled with `yara-python` and reported as `GENERATED_NOT_VALIDATED` if the compiler is missing.
+
+#### E. Risk Policy Transparency & Authoritative Status (`core/risk_engine.py`, `core/pipeline.py`)
+- Risk Engine records an explicit `policy_status` (`DEFAULT`, `LOADED_CUSTOM`, `FALLBACK_NOT_FOUND`, `FALLBACK_PARSE_ERROR`, `FALLBACK_INVALID_SCHEMA`) and embeds fallback notes in verdicts and limitations.
+- The pipeline maintains a single authoritative `stage_statuses` dictionary tracking all stages. Any stage that fails or is incomplete automatically propagates to an overall `PARTIAL` analysis status and ensures the verdict cannot be classified as clean.
 

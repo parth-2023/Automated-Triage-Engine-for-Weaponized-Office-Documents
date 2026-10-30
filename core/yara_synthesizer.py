@@ -62,10 +62,14 @@ class YaraRuleSynthesizer:
 
     @classmethod
     def escape_yara_string(cls, s: str) -> str:
-        """Safely escape string for embedding in YARA double-quoted literal."""
-        # Replace backslashes first, then quotes, then control characters
+        """
+        Safely escape string for embedding in YARA double-quoted literals.
+        Handles backslashes, quotes, control characters, and multi-byte Unicode.
+        """
+        if s is None:
+            return ""
         out = []
-        for char in s:
+        for char in str(s):
             if char == "\\":
                 out.append("\\\\")
             elif char == '"':
@@ -79,7 +83,9 @@ class YaraRuleSynthesizer:
             elif 32 <= ord(char) <= 126:
                 out.append(char)
             else:
-                out.append(f"\\x{ord(char):02x}")
+                # Safely escape non-ASCII bytes as \xNN
+                for b in char.encode("utf-8"):
+                    out.append(f"\\x{b:02x}")
         return "".join(out)
 
     @classmethod
@@ -170,14 +176,39 @@ class YaraRuleSynthesizer:
             strings_block.append(f'        $doc_hash = "{fallback_hash}"')
             condition_expr = "$doc_hash"
 
+        # 5. Office container specificity: scope condition with container magic bytes
+        det_format = (doc.detected_format or "").upper()
+        ext = (doc.extension or "").lower()
+        container_magic = None
+        if det_format == "OLE" or ext in (".doc", ".xls", ".ppt"):
+            container_magic = "uint32(0) == 0xE011CFD0"
+        elif det_format in ("OPENXML", "ZIP") or ext in (".docm", ".xlsm", ".docx", ".xlsx", ".pptm", ".pptx"):
+            container_magic = "uint16(0) == 0x4B50"
+
+        if container_magic:
+            final_condition = f"{container_magic} and ({condition_expr})"
+        else:
+            final_condition = condition_expr
+
+        # 6. Validate and escape metadata values against syntax corruption
+        raw_sha = str(doc.hashes.get("sha256", "")).strip().lower()
+        if re.match(r"^[0-9a-fA-F]{64}$", raw_sha):
+            safe_sha = raw_sha
+        else:
+            safe_sha = "UNKNOWN_OR_UNAVAILABLE"
+
+        safe_orig_filename = cls.escape_yara_string(doc.safe_filename or "unnamed_sample")
+        safe_author = cls.escape_yara_string("Automated Office Triage Engine")
+        safe_desc = cls.escape_yara_string("Auto-generated detection rule for weaponized Office document sample")
+
         rule_template = f"""rule {rule_name}
 {{
     meta:
-        description = "Auto-generated detection rule for weaponized Office document sample"
-        author = "Automated Office Triage Engine"
+        description = "{safe_desc}"
+        author = "{safe_author}"
         date = "2026-10-30"
-        sha256 = "{doc.hashes.get('sha256', 'N/A')}"
-        original_file = "{doc.safe_filename}"
+        sha256 = "{safe_sha}"
+        original_file = "{safe_orig_filename}"
         reference = "Static Analysis Detection Fusion"
         evidence_count = {total_evidence}
 
@@ -185,7 +216,7 @@ class YaraRuleSynthesizer:
 {chr(10).join(strings_block)}
 
     condition:
-        {condition_expr}
+        {final_condition}
 }}
 """
         # Validate syntax using yara-python if available

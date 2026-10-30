@@ -127,6 +127,10 @@ class ShellcodeAnalyzer:
             else:
                 consecutive_pushes = 0
 
+        # 6. Egg hunter search primitive (cld / scasd / page access loop)
+        if "scasd" in disasm_text or ("cld" in disasm_text and any(s in disasm_text for s in ["scasb", "scasd", "cmpsb", "cmpsd"])):
+            heuristics.append("Egg hunter scanning primitive (CLD / SCASD memory search loop)")
+
         return heuristics
 
     def analyze_buffer(self, buffer: bytes, arch_hint: str = "auto") -> ShellcodeAnalysisReport:
@@ -228,6 +232,7 @@ class ShellcodeAnalyzer:
         has_peb = any("PEB Access" in h for h in heuristics)
         has_api = len(resolved_hashes) > 0
         has_call_pop = any("Call/Pop" in h for h in heuristics)
+        has_egg_hunter = any("Egg hunter" in h for h in heuristics)
         signal_count = len(heuristics)
 
         if (has_peb and (has_api or has_call_pop)) or (has_api and has_call_pop) or (signal_count >= 3):
@@ -239,6 +244,9 @@ class ShellcodeAnalyzer:
         elif has_call_pop and len(instructions) >= 3 and chosen_arch != "UNKNOWN":
             is_shellcode = True
             confidence = "Medium"
+        elif has_egg_hunter and (signal_count >= 2 or len(instructions) >= 4):
+            is_shellcode = True
+            confidence = "High" if signal_count >= 2 else "Medium"
         else:
             is_shellcode = False
             confidence = "Low"

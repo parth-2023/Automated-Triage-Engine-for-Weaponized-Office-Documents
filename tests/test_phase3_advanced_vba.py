@@ -66,6 +66,33 @@ class TestDeobfuscator:
         assert any("calc" in r for r in reconstructed)
         assert any("calc.exe" in r for r in reconstructed)
 
+    def test_string_aware_variable_substitution(self):
+        # 1. Variable name inside ordinary string literal must NOT be replaced
+        var_table = {"var1": "MALICIOUS", "target": "PAYLOAD"}
+        text_with_literal = 'msg = "This is var1 inside literal" & var1'
+        substituted = RestrictedVbaDeobfuscator._substitute_vars(text_with_literal, var_table)
+        assert substituted == 'msg = "This is var1 inside literal" & "MALICIOUS"'
+
+        # 2. Variable name inside escaped quotes ("") must NOT be replaced
+        escaped_literal = 'banner = "Prefix ""var1"" and ""target"" text" & target'
+        sub_escaped = RestrictedVbaDeobfuscator._substitute_vars(escaped_literal, var_table)
+        assert sub_escaped == 'banner = "Prefix ""var1"" and ""target"" text" & "PAYLOAD"'
+
+        # 3. Concatenation of multiple variables and string literals
+        multi_concat = 'url = target & "/download?id=" & var1'
+        sub_concat = RestrictedVbaDeobfuscator._substitute_vars(multi_concat, var_table)
+        assert sub_concat == 'url = "PAYLOAD" & "/download?id=" & "MALICIOUS"'
+
+        # 4. Verify end-to-end reconstruction in analyze_module
+        full_code = (
+            'part1 = "powershell"\n'
+            'msg = "Do not replace part1 in here: " & part1\n'
+        )
+        results = RestrictedVbaDeobfuscator.analyze_module(full_code, "ModStringAware")
+        reconstructed = [r.reconstructed_value for r in results]
+        # Must contain reconstructed concatenation with literal preserved
+        assert any("Do not replace part1 in here: powershell" in r for r in reconstructed)
+
     def test_bounded_xor_loop_evaluation(self):
         # Statically assign a buffer and an XOR loop
         # "calc.exe" XOR 22 (0x16) = [117, 119, 122, 117, 56, 115, 110, 115]
@@ -162,3 +189,64 @@ class TestStompingDetector:
         assert result.is_stomped is True
         assert result.sdi_score >= 0.8
         assert result.confidence == "High"
+
+    def test_stomping_single_high_risk_call_alone_not_stomped(self):
+        # Single isolated call mismatch must NOT unilaterally cause stomped verdict
+        source_code = 'Sub Main()\nDim x As Integer\nEnd Sub'
+        source_data = StompingDetector._extract_source_constructs(source_code)
+        pcode_data = {
+            "token_count": 10,
+            "procedures": ["Main"],
+            "calls": ["Shell"],
+            "strings": [],
+        }
+        discrepancies = StompingDetector.compare_pcode_to_source(pcode_data, source_data, "ModSingle")
+        assert len(discrepancies) == 1
+        result = StompingDetector.evaluate_discrepancies(discrepancies, pcode_token_count=10, source_line_count=3)
+        # Should NOT classify as stomped solely based on a single high-risk API
+        assert result.is_stomped is False
+
+    def test_stomping_benign_intermodule_call(self):
+        # Call in Mod1 is defined in Mod2 source; cross-module check must prevent false positive
+        source_mod1 = StompingDetector._extract_source_constructs('Sub Foo()\nEnd Sub')
+        source_mod2 = StompingDetector._extract_source_constructs('Sub Helper()\nHelperFunc\nEnd Sub')
+        all_words = source_mod1["words"] | source_mod2["words"]
+
+        pcode_mod1 = {
+            "token_count": 20,
+            "procedures": ["Foo"],
+            "calls": ["HelperFunc"],  # Defined in mod2
+            "strings": [],
+        }
+        discrepancies = StompingDetector.compare_pcode_to_source(
+            pcode_mod1, source_mod1, "Mod1", all_source_words=all_words
+        )
+        assert len(discrepancies) == 0
+
+    def test_stomping_module_splitting_and_missing_modules(self):
+        pcode_text = (
+            "Module streams:\n"
+            "VBA/Module1 - 500 bytes\n"
+            "ProcDef: Sub Alpha\n"
+            "VBA/ModuleHidden - 800 bytes\n"
+            "ProcDef: Sub SecretPayload\n"
+        )
+        split_map = StompingDetector._split_pcode_by_modules(pcode_text)
+        assert "module1" in split_map
+        assert "modulehidden" in split_map
+
+    def test_stomping_failure_handling(self, fixtures, monkeypatch):
+        # Simulated extraction failure must produce FAILED status
+        def raise_pcode_err(*args, **kwargs):
+            raise RuntimeError("Corrupt PCode stream version unsupported")
+        import pcodedmp.pcodedmp as pcode_engine
+        monkeypatch.setattr(pcode_engine, "processFile", raise_pcode_err)
+
+        vba = VBAExtractionResult(True, 1, 5, [
+            VBAModule("Mod1", "VBA/Mod1", "Mod1", "Sub Test()\nEnd Sub", 2, [])
+        ])
+        res = StompingDetector.analyze(fixtures["docm_harmless_vba"], vba)
+        assert res.analysis_status == "FAILED"
+        assert res.is_stomped is False
+        assert len(res.limitations) > 0
+        assert "Corrupt PCode" in res.notes[0]

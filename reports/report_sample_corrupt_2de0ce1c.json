@@ -1,6 +1,10 @@
 {
   "analysis_overview": {
     "analysis_status": "INVALID_INPUT",
+    "stage_statuses": {
+      "ingestion": "COMPLETED",
+      "structural_inspection": "CORRUPT"
+    },
     "security_verdict": "INCONCLUSIVE",
     "risk_classification": "INCONCLUSIVE",
     "normalized_score": 0,
@@ -8,7 +12,9 @@
     "limitations": [
       "Document container is corrupt; deep analysis was not possible.",
       "Container structure could not be parsed."
-    ]
+    ],
+    "policy_status": "DEFAULT",
+    "policy_source": "BUILTIN_DEFAULT"
   },
   "sample_identity": {
     "original_filename": "sample_corrupt.doc",
@@ -199,7 +205,7 @@
   "synthesized_yara_rule": {
     "rule_name": "WeaponizedDoc_2de0ce1c",
     "is_valid_syntax": true,
-    "rule_text": "rule WeaponizedDoc_2de0ce1c\n{\n    meta:\n        description = \"Auto-generated detection rule for weaponized Office document sample\"\n        author = \"Automated Office Triage Engine\"\n        date = \"2026-10-30\"\n        sha256 = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n        original_file = \"sample_corrupt.doc\"\n        reference = \"Static Analysis Detection Fusion\"\n        evidence_count = 0\n\n    strings:\n        $doc_hash = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n\n    condition:\n        $doc_hash\n}\n"
+    "rule_text": "rule WeaponizedDoc_2de0ce1c\n{\n    meta:\n        description = \"Auto-generated detection rule for weaponized Office document sample\"\n        author = \"Automated Office Triage Engine\"\n        date = \"2026-10-30\"\n        sha256 = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n        original_file = \"sample_corrupt.doc\"\n        reference = \"Static Analysis Detection Fusion\"\n        evidence_count = 0\n\n    strings:\n        $doc_hash = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n\n    condition:\n        uint32(0) == 0xE011CFD0 and ($doc_hash)\n}\n"
   },
   "risk_assessment": {
     "raw_score": 0,

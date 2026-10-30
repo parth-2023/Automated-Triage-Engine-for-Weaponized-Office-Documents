@@ -12,7 +12,7 @@ Analysis status codes:
 """
 
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 
 from core.ingestion import IngestionManager, IngestedDocument
@@ -49,6 +49,7 @@ class TriagePipelineResult:
     yara_rule: SynthesizedYaraRule
     report_data: Dict[str, Any]
     analysis_status: str = "COMPLETED"      # COMPLETED, PARTIAL, FAILED, UNSUPPORTED, INVALID_INPUT
+    stage_statuses: Dict[str, str] = field(default_factory=dict)
     analysis_limitations: List[str] = None   # populated post-init
     html_report_path: Optional[Path] = None
     json_report_path: Optional[Path] = None
@@ -108,7 +109,8 @@ class TriagePipeline:
                     doc, {}, empty_struct, empty_vba, empty_fused, verdict, empty_stomping,
                     [], [], empty_shellcode, empty_features, synth_yara,
                     analysis_status=analysis_status,
-                    analysis_limitations=[doc.error_message] if doc.error_message else []
+                    analysis_limitations=[doc.error_message] if doc.error_message else [],
+                    stage_statuses={"ingestion": "UNSUPPORTED"}
                 )
                 stem = Path(doc.safe_filename).stem
                 h_prefix = doc.hashes.get('sha256', 'unknown')[:8] if doc.hashes else 'unhashed'
@@ -133,6 +135,7 @@ class TriagePipeline:
                     yara_rule=synth_yara,
                     report_data=report_data,
                     analysis_status=analysis_status,
+                    stage_statuses={"ingestion": "UNSUPPORTED"},
                     analysis_limitations=[doc.error_message] if doc.error_message else [],
                     html_report_path=html_path,
                     json_report_path=json_path,
@@ -165,7 +168,8 @@ class TriagePipeline:
                     doc, metadata, structure, empty_vba, empty_fused, verdict, empty_stomping,
                     [], [], empty_shellcode, empty_features, synth_yara,
                     analysis_status="INVALID_INPUT",
-                    analysis_limitations=corrupt_lims
+                    analysis_limitations=corrupt_lims,
+                    stage_statuses={"ingestion": "COMPLETED", "structural_inspection": "CORRUPT"}
                 )
                 stem = Path(doc.safe_filename).stem
                 h_prefix = doc.hashes.get('sha256', 'unknown')[:8] if doc.hashes else 'unhashed'
@@ -190,6 +194,7 @@ class TriagePipeline:
                     yara_rule=synth_yara,
                     report_data=report_data,
                     analysis_status="INVALID_INPUT",
+                    stage_statuses={"ingestion": "COMPLETED", "structural_inspection": "CORRUPT"},
                     analysis_limitations=corrupt_lims,
                     html_report_path=html_path,
                     json_report_path=json_path,
@@ -207,10 +212,26 @@ class TriagePipeline:
                 deobf_results.extend(RestrictedVbaDeobfuscator.analyze_module(mod.code, mod.module_name))
 
             # 7. Payload Extraction — from original VBA AND deobfuscation output
-            payloads = PayloadExtractor.extract_all(vba, doc.safe_filename, deobf_results=deobf_results)
-            total_payload_bytes = sum(p.payload_size for p in payloads)
-            payload_status = FeatureState.MEASURED if vba.has_macros else FeatureState.NOT_DETECTED
-            payload_note = "" if vba.has_macros else "No VBA macros present; payload extraction not applicable."
+            try:
+                payloads = PayloadExtractor.extract_all(vba, doc.safe_filename, deobf_results=deobf_results)
+                if payloads:
+                    total_payload_bytes = sum(p.payload_size for p in payloads)
+                    payload_status = FeatureState.MEASURED
+                    payload_note = f"Successfully recovered {len(payloads)} payload candidate(s)."
+                elif vba.has_macros or deobf_results:
+                    total_payload_bytes = 0
+                    payload_status = FeatureState.NOT_DETECTED
+                    payload_note = "Payload extraction completed; 0 candidate buffers recovered."
+                else:
+                    total_payload_bytes = 0
+                    payload_status = FeatureState.NOT_APPLICABLE
+                    payload_note = "No VBA macros present; payload extraction not applicable."
+            except Exception as e:
+                payloads = []
+                total_payload_bytes = 0
+                payload_status = FeatureState.FAILED
+                payload_note = f"Payload extraction failed: {str(e)}"
+                limitations.append(payload_note)
 
             # 8. VBA Stomping Detection
             stomping = StompingDetector.analyze(doc.file_path, vba)
@@ -231,11 +252,11 @@ class TriagePipeline:
                 pcode_note = "No macros present."
                 # Absence of macros is expected for clean documents; not an analysis failure.
             else:  # PARTIAL or FAILED
-                stomping_feat_status = FeatureState.UNAVAILABLE
-                pcode_feat_status = FeatureState.UNAVAILABLE
+                stomping_feat_status = FeatureState.UNAVAILABLE if stomping.analysis_status == "UNAVAILABLE" else FeatureState.FAILED
+                pcode_feat_status = FeatureState.UNAVAILABLE if stomping.analysis_status == "UNAVAILABLE" else FeatureState.FAILED
                 stomping_note = "; ".join(stomping.notes)
                 pcode_note = "; ".join(stomping.notes)
-                limitations.append(f"VBA stomping analysis partial: {stomping_note}")
+                limitations.append(f"VBA stomping analysis incomplete: {stomping_note}")
 
             # 9. Shellcode Analysis on Extracted Payloads
             shellcode_report = ShellcodeAnalysisReport(False, "UNKNOWN", 0, analysis_status="NO_CANDIDATE")
@@ -275,19 +296,7 @@ class TriagePipeline:
             # 10. Detection Fusion
             fused = DetectionFusionEngine.fuse(findings, structure.anomalies)
 
-            # 11. Determine overall analysis status
-            overall_status = "COMPLETED" if not limitations else "PARTIAL"
-
-            # 12. Risk Scoring (pass analysis status so incomplete analysis is flagged)
-            verdict = self.risk_engine.evaluate(
-                fused,
-                is_valid_format=True,
-                is_corrupt=False,
-                analysis_status=overall_status,
-                incomplete_features=limitations
-            )
-
-            # 13. 18-Feature Representation
+            # 11. 18-Feature Representation (extract features first to record per-feature availability)
             features = FeatureExtractor.extract_features(
                 doc=doc,
                 structure=structure,
@@ -299,12 +308,45 @@ class TriagePipeline:
                 pcode_tokens=pcode_tok_val,
                 pcode_status=pcode_feat_status,
                 pcode_note=pcode_note,
-                payload_bytes=total_payload_bytes if payloads else None,
+                payload_bytes=total_payload_bytes if payloads else (0 if payload_status == FeatureState.NOT_DETECTED else None),
                 payload_status=payload_status,
                 payload_note=payload_note,
                 resolved_api_hashes=api_hash_val,
                 api_hash_status=api_hash_status,
                 api_hash_note=api_hash_note,
+            )
+
+            # 12. Authoritative Single Stage-Status Record
+            stage_statuses: Dict[str, str] = {
+                "ingestion": "COMPLETED",
+                "structural_inspection": "COMPLETED",
+                "vba_extraction": "COMPLETED" if vba.has_macros else "NOT_APPLICABLE",
+                "static_analysis": "COMPLETED",
+                "deobfuscation": "COMPLETED",
+                "payload_extraction": payload_status,
+                "vba_stomping": stomping.analysis_status,
+                "shellcode_analysis": shellcode_report.analysis_status,
+                "detection_fusion": "COMPLETED",
+            }
+
+            # Incomplete features collection
+            incomplete_features_list = list(set(features.unavailable_features + features.failed_features))
+
+            # Derive authoritative overall analysis status:
+            # Any FAILED, UNAVAILABLE, or PARTIAL stage guarantees overall status CANNOT be COMPLETED.
+            has_failed_stage = any(st in ("FAILED", "UNAVAILABLE", "PARTIAL") for st in stage_statuses.values())
+            if has_failed_stage or incomplete_features_list or not features.analysis_complete:
+                overall_status = "PARTIAL"
+            else:
+                overall_status = "COMPLETED"
+
+            # 13. Risk Scoring (authoritative status and incomplete feature list)
+            verdict = self.risk_engine.evaluate(
+                fused,
+                is_valid_format=True,
+                is_corrupt=False,
+                analysis_status=overall_status,
+                incomplete_features=incomplete_features_list + limitations
             )
 
             # 14. YARA Rule Synthesis
@@ -325,6 +367,7 @@ class TriagePipeline:
                 feature_vector=features,
                 yara_rule=yara_rule,
                 analysis_status=overall_status,
+                stage_statuses=stage_statuses,
                 analysis_limitations=limitations,
             )
 
@@ -352,6 +395,7 @@ class TriagePipeline:
                 yara_rule=yara_rule,
                 report_data=report_data,
                 analysis_status=overall_status,
+                stage_statuses=stage_statuses,
                 analysis_limitations=limitations,
                 html_report_path=html_path,
                 json_report_path=json_path,

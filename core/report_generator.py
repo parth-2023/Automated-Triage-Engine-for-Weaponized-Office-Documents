@@ -43,6 +43,7 @@ class ReportGenerator:
         yara_rule: SynthesizedYaraRule,
         analysis_status: str = "COMPLETED",
         analysis_limitations: Optional[List[str]] = None,
+        stage_statuses: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Consolidate all pipeline artifacts into a single report dictionary."""
         effective_limitations = list(analysis_limitations or [])
@@ -53,11 +54,14 @@ class ReportGenerator:
         return {
             "analysis_overview": {
                 "analysis_status": analysis_status,
+                "stage_statuses": stage_statuses or {},
                 "security_verdict": getattr(verdict, "security_verdict", verdict.classification),
                 "risk_classification": verdict.classification,
                 "normalized_score": verdict.normalized_score,
                 "is_complete": analysis_status == "COMPLETED",
                 "limitations": effective_limitations,
+                "policy_status": getattr(verdict, "policy_status", "DEFAULT"),
+                "policy_source": getattr(verdict, "policy_source", "BUILTIN_DEFAULT"),
             },
             "sample_identity": {
                 "original_filename": doc.original_filename,

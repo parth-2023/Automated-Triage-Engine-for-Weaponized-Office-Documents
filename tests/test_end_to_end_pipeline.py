@@ -73,6 +73,25 @@ class TestEndToEndPipeline:
         assert res.json_report_path is not None
         assert Path(res.json_report_path).exists()
 
+    def test_stage_failure_prevents_completed_status(self, fixtures, monkeypatch):
+        # Simulate payload extraction or stomping failure
+        from core.payload_extractor import PayloadExtractor
+        def raise_extraction_error(*args, **kwargs):
+            raise RuntimeError("Simulated payload extraction library failure")
+        monkeypatch.setattr(PayloadExtractor, "extract_all", raise_extraction_error)
+
+        pipeline = TriagePipeline()
+        path = fixtures["docm_harmless_vba"]
+        res = pipeline.analyze_file(str(path))
+
+        # Overall analysis status MUST NOT be COMPLETED
+        assert res.analysis_status == "PARTIAL"
+        assert res.stage_statuses["payload_extraction"] == "FAILED"
+        assert "f16_extracted_payload_bytes" in res.features.failed_features
+        # Low findings on partial analysis must be marked PARTIAL
+        assert res.verdict.classification == "PARTIAL"
+        assert "INCOMPLETE ANALYSIS" in res.verdict.security_verdict
+
 
 class TestDashboardCallbackAndSecurity:
     def test_analyze_document_none_input(self):
