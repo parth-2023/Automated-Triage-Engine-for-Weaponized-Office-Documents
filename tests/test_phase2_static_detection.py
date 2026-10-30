@@ -112,8 +112,83 @@ class TestRiskEngine:
         verdict = engine.evaluate(fused, is_valid_format=True, is_corrupt=True)
         assert verdict.classification == "INCONCLUSIVE"
 
+    def test_incomplete_analysis_status_partial(self):
+        engine = RiskEngine()
+        fused = DetectionFusionEngine.fuse([])
+        # Even with 0 findings, partial analysis should be marked PARTIAL
+        verdict = engine.evaluate(fused, is_valid_format=True, is_corrupt=False, analysis_status="PARTIAL")
+        assert verdict.classification == "PARTIAL"
+        assert verdict.security_verdict == "INCOMPLETE ANALYSIS — VERDICT UNVERIFIED"
+        assert any("PARTIAL" in lim for lim in verdict.limitations)
+
+    def test_diminishing_returns_and_weights(self):
+        engine = RiskEngine()
+        # Create 3 instances of the same indicator
+        f1 = Finding("f1", "Document_Open", "EXECUTION", "MEDIUM", "Document_Open", "Mod1", 1, "trigger")
+        f2 = Finding("f2", "Document_Open", "EXECUTION", "MEDIUM", "Document_Open", "Mod1", 5, "trigger")
+        f3 = Finding("f3", "Document_Open", "EXECUTION", "MEDIUM", "Document_Open", "Mod1", 10, "trigger")
+        fused = DetectionFusionEngine.fuse([f1, f2, f3])
+        verdict = engine.evaluate(fused)
+        # Base weight for Document_Open in policy is 20
+        # 1st instance: 20 * 1.0 = 20
+        # 2nd instance: 20 * 0.3 = 6
+        # 3rd instance: 20 * 0.1 = 2
+        # Total = 28
+        assert verdict.raw_score == pytest.approx(28.0, 0.5)
+
+    def test_risk_bands(self):
+        engine = RiskEngine()
+        # Test low
+        v_low = engine.evaluate(DetectionFusionEngine.fuse([]))
+        assert v_low.classification == "LOW"
+        assert 0 <= v_low.normalized_score <= 19
+
+        # Test medium
+        f_med = Finding("f1", "Document_Open", "EXECUTION", "MEDIUM", "Document_Open", "Mod1", 1, "trigger")
+        v_med = engine.evaluate(DetectionFusionEngine.fuse([f_med]))
+        assert v_med.classification == "MEDIUM"
+        assert 20 <= v_med.normalized_score <= 49
+
 
 class TestFeatureExtractor:
+    def test_feature_states_and_sentinel(self):
+        from core.feature_extractor import FeatureState, FeatureEntry
+        doc = IngestedDocument("test.docm", "test.docm", Path("test.docm"), 1024, {"sha256": "abc"}, 6.2, "OpenXML", ".docm")
+        struct = StructuralInspectionResult("OpenXML", 5, [], True, "word/vbaProject.bin", 6.8, 5.1)
+        # When VBA extraction fails / has no macros:
+        vba = VBAExtractionResult(False, 0, 0, [])
+        fused = DetectionFusionEngine.fuse([])
+
+        # Stomping and payload extraction were not applicable or failed
+        vec = FeatureExtractor.extract_features(
+            doc, struct, vba, fused,
+            stomping_sdi=None, pcode_tokens=None, payload_bytes=None, resolved_api_hashes=None,
+            stomping_status=FeatureState.NOT_APPLICABLE,
+            pcode_status=FeatureState.NOT_APPLICABLE,
+            payload_status=FeatureState.UNAVAILABLE,
+            api_hash_status=FeatureState.FAILED
+        )
+        assert vec.f4_stomping_discrepancy.state == FeatureState.NOT_APPLICABLE
+        assert vec.f6_pcode_token_count.state == FeatureState.NOT_APPLICABLE
+        assert vec.f16_extracted_payload_bytes.state == FeatureState.UNAVAILABLE
+        assert vec.f17_resolved_api_hash_count.state == FeatureState.FAILED
+
+        # Check numeric list with -1.0 sentinel
+        num_list_missing = vec.to_numeric_list(missing_sentinel=-1.0)
+        assert len(num_list_missing) == 18
+        # f4 is NOT_APPLICABLE -> should be -1.0
+        assert num_list_missing[3] == -1.0
+        # f6 is NOT_APPLICABLE -> should be -1.0
+        assert num_list_missing[5] == -1.0
+        # f16 is UNAVAILABLE -> should be -1.0
+        assert num_list_missing[15] == -1.0
+        # f17 is FAILED -> should be -1.0
+        assert num_list_missing[16] == -1.0
+
+        # Check default sentinel 0.0
+        num_list_zero = vec.to_numeric_list(missing_sentinel=0.0)
+        assert num_list_zero[3] == 0.0
+
     def test_feature_vector_structure(self):
         doc = IngestedDocument("test.docm", "test.docm", Path("test.docm"), 1024, {"sha256": "abc"}, 6.2, "OpenXML", ".docm")
         struct = StructuralInspectionResult("OpenXML", 5, [], True, "word/vbaProject.bin", 6.8, 5.1)

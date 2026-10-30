@@ -21,7 +21,7 @@ Security: extracted bytes are never executed or written to disk.
 import re
 import hashlib
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from core.hashing import calculate_hashes, shannon_entropy
 from core.vba_extractor import VBAExtractionResult
@@ -96,7 +96,7 @@ class PayloadExtractor:
         return bytes(byte_list) if byte_list else None
 
     @classmethod
-    def _classify_bytes(cls, data: bytes) -> Tuple_confidence_candidate:
+    def _classify_bytes(cls, data: bytes) -> Tuple[bool, str]:
         """Return (is_payload_candidate, confidence) based on byte content."""
         # Check known magic bytes
         for magic, _ in cls._MAGIC_SIGNATURES.items():
@@ -199,30 +199,26 @@ class PayloadExtractor:
             if not d.is_complete:
                 continue   # skip partial/uncertain results
 
-            raw: Optional[bytes] = None
-            method = "DEOBF_UNKNOWN"
+            raw: Optional[bytes] = getattr(d, "raw_bytes", None)
+            method = f"DEOBF_{d.transformation_type}"
 
-            if d.transformation_type == "BASE64":
-                try:
-                    import base64 as _b64
-                    raw = _b64.b64decode(d.original_expression, validate=True)
-                    method = "DEOBF_BASE64"
-                except Exception:
-                    # original_expression might not be the raw b64 string in all cases
-                    pass
+            if raw is None:
+                if d.transformation_type == "BASE64":
+                    try:
+                        import base64 as _b64
+                        raw = _b64.b64decode(d.original_expression, validate=True)
+                        method = "DEOBF_BASE64"
+                    except Exception:
+                        pass
 
-            elif d.transformation_type == "HEX_DECODE":
-                try:
-                    hex_str = d.original_expression.strip()
-                    if len(hex_str) % 2 == 0:
-                        raw = bytes.fromhex(hex_str)
-                        method = "DEOBF_HEX"
-                except Exception:
-                    pass
-
-            elif d.transformation_type == "XOR_DECRYPT":
-                # We only record XOR loops as evidence (cannot reconstruct without running)
-                continue
+                elif d.transformation_type == "HEX_DECODE":
+                    try:
+                        hex_str = d.original_expression.strip()
+                        if len(hex_str) % 2 == 0:
+                            raw = bytes.fromhex(hex_str)
+                            method = "DEOBF_HEX"
+                    except Exception:
+                        pass
 
             if raw is None or len(raw) < 8:
                 continue
@@ -286,5 +282,4 @@ class PayloadExtractor:
         return deduped
 
 
-# Type hint helper
-from typing import Tuple as Tuple_confidence_candidate
+

@@ -12,6 +12,7 @@
         .badge.high { background: #ea580c; color: white; }
         .badge.medium { background: #d97706; color: white; }
         .badge.low { background: #16a34a; color: white; }
+        .badge.partial { background: #eab308; color: black; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
         .card { background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; }
         .card h3 { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -19,17 +20,22 @@
         table { width: 100%; border-collapse: collapse; margin-top: 12px; background: #1e293b; border-radius: 8px; overflow: hidden; }
         th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #334155; font-size: 0.9rem; }
         th { background: #0f172a; color: #94a3b8; }
-        code { background: #0f172a; padding: 2px 6px; border-radius: 4px; color: #f43f5e; font-family: monospace; }
+        code { background: #0f172a; padding: 2px 6px; border-radius: 4px; color: #f43f5e; font-family: monospace; word-break: break-all; }
         pre { background: #0f172a; padding: 14px; border-radius: 8px; overflow-x: auto; color: #a5f3fc; font-size: 0.85rem; border: 1px solid #334155; }
     </style>
 </head>
 <body>
 <div class="container">
+    
     <div class="header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <h1 style="margin: 0 0 8px 0;">Office Document Malware Triage Report</h1>
                 <div style="color: #94a3b8;">Sample: <strong>sample_corrupt.doc</strong></div>
+                <div style="margin-top: 6px;">
+                    <span class="badge" style="background-color: #6b7280; font-size: 0.8rem;">Status: INVALID_INPUT</span>
+                    <span style="color: #cbd5e1; font-size: 0.9rem; margin-left: 10px;">Verdict: <strong>INCONCLUSIVE</strong></span>
+                </div>
             </div>
             <div style="text-align: right;">
                 <span class="badge" style="background-color: #6b7280; font-size: 1.2rem; padding: 10px 20px;">
@@ -78,18 +84,19 @@
     <pre>rule WeaponizedDoc_2de0ce1c
 {
     meta:
-        description = "Auto-generated detection rule for weaponized Office document sample"
-        author = "Automated Office Triage Engine"
-        date = "2026-10-30"
-        sha256 = "2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e"
-        original_file = "sample_corrupt.doc"
-        reference = "Static Analysis Detection Fusion"
+        description = &quot;Auto-generated detection rule for weaponized Office document sample&quot;
+        author = &quot;Automated Office Triage Engine&quot;
+        date = &quot;2026-10-30&quot;
+        sha256 = &quot;2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e&quot;
+        original_file = &quot;sample_corrupt.doc&quot;
+        reference = &quot;Static Analysis Detection Fusion&quot;
+        evidence_count = 0
 
     strings:
-        $doc_hash = "2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e"
+        $doc_hash = &quot;2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e&quot;
 
     condition:
-        any of them
+        $doc_hash
 }
 </pre>
 

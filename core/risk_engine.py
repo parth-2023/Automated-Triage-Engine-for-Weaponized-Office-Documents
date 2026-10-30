@@ -88,6 +88,64 @@ class RiskEngine:
             except Exception:
                 pass  # Fall back to default policy
 
+    def _get_indicator_weight(self, indicator_name: str, severity: str) -> float:
+        """
+        Resolve base weight from YAML policy's base_weights table,
+        falling back to severity_weights if indicator is not explicitly listed.
+        """
+        base_weights = self.policy.get("base_weights", DEFAULT_POLICY.get("base_weights", {}))
+        severity_weights = self.policy.get("severity_weights", DEFAULT_POLICY.get("severity_weights", {}))
+
+        # Normalize indicator name: e.g. "Win32API_VirtualAlloc" -> "virtual_alloc"
+        norm = indicator_name.lower().replace("win32api_", "").replace("-", "_").strip()
+        # Direct lookup or clean lookup
+        mapping = {
+            "document_open": "document_open",
+            "documentopen": "document_open",
+            "autoopen": "auto_open",
+            "auto_open": "auto_open",
+            "workbook_open": "workbook_open",
+            "workbookopen": "workbook_open",
+            "autoexec": "auto_exec",
+            "auto_exec": "auto_exec",
+            "document_close": "document_close",
+            "documentclose": "document_close",
+            "virtualalloc": "virtual_alloc",
+            "virtual_alloc": "virtual_alloc",
+            "virtualallocex": "virtual_alloc_ex",
+            "virtual_alloc_ex": "virtual_alloc_ex",
+            "rtlmovememory": "rtl_move_memory",
+            "rtl_move_memory": "rtl_move_memory",
+            "writeprocessmemory": "write_process_memory",
+            "write_process_memory": "write_process_memory",
+            "createthread": "create_thread",
+            "create_thread": "create_thread",
+            "createremotethread": "create_remote_thread",
+            "create_remote_thread": "create_remote_thread",
+            "shellexecute": "shell_execute",
+            "shell_execute": "shell_execute",
+            "winexec": "win_exec",
+            "win_exec": "win_exec",
+            "chr_obfuscation": "chr_obfuscation",
+            "strreverse": "str_reverse",
+            "str_reverse": "str_reverse",
+            "xor_transform": "xor_transform",
+            "high_entropy_stream": "high_entropy_stream",
+            "extracted_payload": "extracted_payload",
+            "embeddedshellcode": "shellcode_detected",
+            "shellcode_detected": "shellcode_detected",
+            "resolved_api_hash": "resolved_api_hash",
+            "c2_network_indicator": "c2_network_indicator",
+            "stomping_discrepancy_low": "stomping_discrepancy_low",
+            "stomping_discrepancy_med": "stomping_discrepancy_med",
+            "stomping_discrepancy_high": "stomping_discrepancy_high",
+        }
+        mapped_key = mapping.get(norm, norm)
+        if mapped_key in base_weights:
+            return float(base_weights[mapped_key])
+
+        return float(severity_weights.get(severity, 15))
+
     def evaluate(
         self,
         fused_result: FusedDetectionResult,
@@ -158,8 +216,8 @@ class RiskEngine:
             count = indicator_counts.get(ind_name, 0)
             indicator_counts[ind_name] = count + 1
 
-            # Severity-mapped base weight
-            base_w = severity_weights.get(finding.severity, 15)
+            # Base weight: from policy base_weights, falling back to severity_weights
+            base_w = self._get_indicator_weight(ind_name, finding.severity)
             # Diminishing returns
             if count == 0:
                 multiplier = dim_ret.get("first", 1.0)
@@ -243,18 +301,28 @@ class RiskEngine:
                 "Highly likely malicious weaponized document."
             )
 
-        # --- Incomplete analysis warnings ---
-        if not fused_result.deduplicated_findings:
+        # --- Incomplete analysis warnings and verdict adjustment ---
+        if analysis_status == "PARTIAL":
+            if normalized <= thresholds.get("low_max", 19):
+                classification = "PARTIAL"
+                security_verdict = "INCOMPLETE ANALYSIS — VERDICT UNVERIFIED"
+                explanation = (
+                    "One or more analysis stages could not be completed. "
+                    "Although no weaponization indicators were identified in the completed stages, "
+                    "the document cannot be confirmed clean because analysis was incomplete."
+                )
+            else:
+                security_verdict = f"{security_verdict} (ANALYSIS PARTIAL)"
+
+            limitations.append(
+                "INCOMPLETE ANALYSIS (PARTIAL): One or more analysis stages could not be completed. "
+                "The risk verdict reflects only the evidence that was successfully obtained. "
+                "The document may pose a higher risk than the score indicates."
+            )
+        elif not fused_result.deduplicated_findings:
             limitations.append(
                 "No macro streams or suspicious structures detected. "
                 "Absence of indicators does not guarantee safety from zero-day exploits."
-            )
-
-        if analysis_status in ("PARTIAL",):
-            limitations.append(
-                "INCOMPLETE ANALYSIS: One or more analysis stages could not be completed. "
-                "The risk verdict reflects only the evidence that was successfully obtained. "
-                "The document may pose a higher risk than the score indicates."
             )
 
         return RiskAssessmentVerdict(

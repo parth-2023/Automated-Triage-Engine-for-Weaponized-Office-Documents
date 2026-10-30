@@ -5,6 +5,7 @@ Gradio Web Application & Analyst Dashboard
 
 import os
 import json
+import html
 import gradio as gr
 from pathlib import Path
 from typing import Tuple, Any
@@ -22,7 +23,7 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
     if file_obj is None:
         return (
             "### Please upload a valid Office document (.doc, .docm, .xls, .xlsm) to begin triage.",
-            [], [], "", [], [], [], [], [], "", None, None
+            [], [], "", [], [], [], [], [], [], "", None, None
         )
 
     file_path = file_obj.name if hasattr(file_obj, "name") else str(file_obj)
@@ -31,35 +32,63 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
     # Run complete analysis pipeline
     res: TriagePipelineResult = pipeline.analyze_file(file_path, filename=original_name)
 
-    # 1. Executive Summary HTML
+    # 1. Executive Summary HTML (safely escaped)
     verdict = res.verdict
     badge_colors = {
         "CRITICAL": "#ef4444",
         "HIGH": "#f97316",
         "MEDIUM": "#f59e0b",
         "LOW": "#10b981",
+        "PARTIAL": "#eab308",
         "INCONCLUSIVE": "#6b7280",
+        "UNSUPPORTED": "#9ca3af",
         "UNSUPPORTED FORMAT": "#9ca3af",
     }
     b_color = badge_colors.get(verdict.classification, "#64748b")
 
+    safe_orig_name = html.escape(str(res.doc.original_filename or "Unknown"))
+    safe_format = html.escape(str(res.doc.detected_format or "Unknown"))
+    safe_classification = html.escape(str(verdict.classification or "Unknown"))
+    safe_explanation = html.escape(str(verdict.explanation or ""))
+    safe_status = html.escape(str(res.analysis_status or "COMPLETED"))
+    sec_verdict = html.escape(str(getattr(verdict, "security_verdict", verdict.classification)))
+
+    sha256_val = html.escape(str(res.doc.hashes.get('sha256', 'N/A')))
+    md5_val = html.escape(str(res.doc.hashes.get('md5', 'N/A')))
+    sha1_val = html.escape(str(res.doc.hashes.get('sha1', 'N/A')))
+
+    incomplete_alert = ""
+    if res.analysis_status == "PARTIAL":
+        incomplete_alert = """
+        <div style="background: #854d0e; color: #fef08a; padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9rem;">
+            <strong>Warning: Analysis Incomplete</strong> — Some components could not be fully parsed or analyzed.
+        </div>
+        """
+
     overview_html = f"""
     <div style="background: #1e293b; padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px;">
+        {incomplete_alert}
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <h2 style="margin: 0; color: #f8fafc;">Sample: {res.doc.original_filename}</h2>
-                <span style="color: #94a3b8; font-size: 0.9rem;">Format: {res.doc.detected_format} | Size: {res.doc.file_size_bytes} bytes | Entropy: {res.doc.file_entropy}</span>
+                <h2 style="margin: 0; color: #f8fafc;">Sample: {safe_orig_name}</h2>
+                <span style="color: #94a3b8; font-size: 0.9rem;">
+                    Format: {safe_format} | Size: {res.doc.file_size_bytes} bytes | Entropy: {res.doc.file_entropy}
+                </span>
+                <div style="margin-top: 4px;">
+                    <span style="background: #334155; color: #cbd5e1; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem;">Status: {safe_status}</span>
+                    <span style="color: #94a3b8; font-size: 0.85rem; margin-left: 8px;">Verdict: <strong>{sec_verdict}</strong></span>
+                </div>
             </div>
             <div style="text-align: right;">
                 <span style="background: {b_color}; color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 1.1rem;">
-                    {verdict.classification} (Score: {verdict.normalized_score}/100)
+                    {safe_classification} (Score: {verdict.normalized_score}/100)
                 </span>
             </div>
         </div>
-        <p style="margin: 15px 0 0 0; color: #cbd5e1; font-size: 1rem;">{verdict.explanation}</p>
-        <div style="margin-top: 15px; font-family: monospace; font-size: 0.85rem; color: #38bdf8; background: #0f172a; padding: 10px; border-radius: 6px;">
-            <strong>SHA-256:</strong> {res.doc.hashes.get('sha256', 'N/A')}<br>
-            <strong>MD5:</strong> {res.doc.hashes.get('md5', 'N/A')} | <strong>SHA-1:</strong> {res.doc.hashes.get('sha1', 'N/A')}
+        <p style="margin: 15px 0 0 0; color: #cbd5e1; font-size: 1rem;">{safe_explanation}</p>
+        <div style="margin-top: 15px; font-family: monospace; font-size: 0.85rem; color: #38bdf8; background: #0f172a; padding: 10px; border-radius: 6px; word-break: break-all;">
+            <strong>SHA-256:</strong> {sha256_val}<br>
+            <strong>MD5:</strong> {md5_val} | <strong>SHA-1:</strong> {sha1_val}
         </div>
     </div>
     """

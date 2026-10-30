@@ -107,8 +107,16 @@ class TriagePipeline:
                 report_data = ReportGenerator.build_report_data(
                     doc, {}, empty_struct, empty_vba, empty_fused, verdict, empty_stomping,
                     [], [], empty_shellcode, empty_features, synth_yara,
-                    analysis_status=analysis_status
+                    analysis_status=analysis_status,
+                    analysis_limitations=[doc.error_message] if doc.error_message else []
                 )
+                stem = Path(doc.safe_filename).stem
+                h_prefix = doc.hashes.get('sha256', 'unknown')[:8] if doc.hashes else 'unhashed'
+                json_path = self.output_dir / f"report_{stem}_{h_prefix}.json"
+                html_path = self.output_dir / f"report_{stem}_{h_prefix}.html"
+                ReportGenerator.export_json(report_data, json_path)
+                ReportGenerator.export_html(report_data, html_path)
+
                 return TriagePipelineResult(
                     doc=doc,
                     metadata={},
@@ -126,6 +134,8 @@ class TriagePipeline:
                     report_data=report_data,
                     analysis_status=analysis_status,
                     analysis_limitations=[doc.error_message] if doc.error_message else [],
+                    html_report_path=html_path,
+                    json_report_path=json_path,
                 )
 
             # 2. Metadata Extraction
@@ -150,11 +160,20 @@ class TriagePipeline:
                     resolved_api_hashes=None, api_hash_status=FeatureState.NOT_APPLICABLE,
                 )
                 synth_yara = YaraRuleSynthesizer.synthesize_rule(doc, empty_fused, [], [])
+                corrupt_lims = ["Document container is corrupt; deep analysis was not possible."]
                 report_data = ReportGenerator.build_report_data(
                     doc, metadata, structure, empty_vba, empty_fused, verdict, empty_stomping,
                     [], [], empty_shellcode, empty_features, synth_yara,
-                    analysis_status="INVALID_INPUT"
+                    analysis_status="INVALID_INPUT",
+                    analysis_limitations=corrupt_lims
                 )
+                stem = Path(doc.safe_filename).stem
+                h_prefix = doc.hashes.get('sha256', 'unknown')[:8] if doc.hashes else 'unhashed'
+                json_path = self.output_dir / f"report_{stem}_{h_prefix}.json"
+                html_path = self.output_dir / f"report_{stem}_{h_prefix}.html"
+                ReportGenerator.export_json(report_data, json_path)
+                ReportGenerator.export_html(report_data, html_path)
+
                 return TriagePipelineResult(
                     doc=doc,
                     metadata=metadata,
@@ -171,7 +190,9 @@ class TriagePipeline:
                     yara_rule=synth_yara,
                     report_data=report_data,
                     analysis_status="INVALID_INPUT",
-                    analysis_limitations=["Document container is corrupt; deep analysis was not possible."],
+                    analysis_limitations=corrupt_lims,
+                    html_report_path=html_path,
+                    json_report_path=json_path,
                 )
 
             # 4. VBA Extraction
@@ -208,8 +229,8 @@ class TriagePipeline:
                 pcode_feat_status = FeatureState.NOT_APPLICABLE
                 stomping_note = "No macros present."
                 pcode_note = "No macros present."
-                limitations.append("VBA stomping analysis: no macros present.")
-            else:  # PARTIAL
+                # Absence of macros is expected for clean documents; not an analysis failure.
+            else:  # PARTIAL or FAILED
                 stomping_feat_status = FeatureState.UNAVAILABLE
                 pcode_feat_status = FeatureState.UNAVAILABLE
                 stomping_note = "; ".join(stomping.notes)

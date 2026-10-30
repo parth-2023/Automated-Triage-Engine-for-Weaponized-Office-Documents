@@ -1,4 +1,15 @@
 {
+  "analysis_overview": {
+    "analysis_status": "INVALID_INPUT",
+    "security_verdict": "INCONCLUSIVE",
+    "risk_classification": "INCONCLUSIVE",
+    "normalized_score": 0,
+    "is_complete": false,
+    "limitations": [
+      "Document container is corrupt; deep analysis was not possible.",
+      "Container structure could not be parsed."
+    ]
+  },
   "sample_identity": {
     "original_filename": "sample_corrupt.doc",
     "safe_filename": "sample_corrupt.doc",
@@ -72,9 +83,9 @@
     "f1_file_size_bytes": 31,
     "f2_ole_stream_count": 0,
     "f3_has_vba_project": 0,
-    "f4_stomping_discrepancy": 0.0,
+    "f4_stomping_discrepancy": "[NOT_APPLICABLE]",
     "f5_source_line_count": 0,
-    "f6_pcode_token_count": 0,
+    "f6_pcode_token_count": "[NOT_APPLICABLE]",
     "f7_max_stream_entropy": 0.0,
     "f8_mean_stream_entropy": 0.0,
     "f9_suspicious_keyword_count": 0,
@@ -84,14 +95,111 @@
     "f13_has_memory_alloc_api": 0,
     "f14_has_memory_copy_api": 0,
     "f15_has_thread_create_api": 0,
-    "f16_extracted_payload_bytes": 0,
-    "f17_resolved_api_hash_count": 0,
+    "f16_extracted_payload_bytes": "[NOT_APPLICABLE]",
+    "f17_resolved_api_hash_count": "[NOT_APPLICABLE]",
     "f18_has_c2_network_indicator": 0
+  },
+  "feature_vector_details": {
+    "f1_file_size_bytes": {
+      "value": 31,
+      "state": "MEASURED",
+      "note": ""
+    },
+    "f2_ole_stream_count": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f3_has_vba_project": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f4_stomping_discrepancy": {
+      "value": null,
+      "state": "NOT_APPLICABLE",
+      "note": "Corrupt document."
+    },
+    "f5_source_line_count": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f6_pcode_token_count": {
+      "value": null,
+      "state": "NOT_APPLICABLE",
+      "note": "P-code extraction not applicable."
+    },
+    "f7_max_stream_entropy": {
+      "value": 0.0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f8_mean_stream_entropy": {
+      "value": 0.0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f9_suspicious_keyword_count": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f10_obfuscated_chr_count": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f11_strreverse_calls": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f12_win32_api_declarations": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f13_has_memory_alloc_api": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f14_has_memory_copy_api": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f15_has_thread_create_api": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    },
+    "f16_extracted_payload_bytes": {
+      "value": null,
+      "state": "NOT_APPLICABLE",
+      "note": "Payload extraction not applicable."
+    },
+    "f17_resolved_api_hash_count": {
+      "value": null,
+      "state": "NOT_APPLICABLE",
+      "note": "API hash resolution not applicable."
+    },
+    "f18_has_c2_network_indicator": {
+      "value": 0,
+      "state": "NOT_DETECTED",
+      "note": ""
+    }
+  },
+  "feature_availability": {
+    "analysis_complete": true,
+    "unavailable_features": [],
+    "failed_features": []
   },
   "synthesized_yara_rule": {
     "rule_name": "WeaponizedDoc_2de0ce1c",
     "is_valid_syntax": true,
-    "rule_text": "rule WeaponizedDoc_2de0ce1c\n{\n    meta:\n        description = \"Auto-generated detection rule for weaponized Office document sample\"\n        author = \"Automated Office Triage Engine\"\n        date = \"2026-10-30\"\n        sha256 = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n        original_file = \"sample_corrupt.doc\"\n        reference = \"Static Analysis Detection Fusion\"\n\n    strings:\n        $doc_hash = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n\n    condition:\n        any of them\n}\n"
+    "rule_text": "rule WeaponizedDoc_2de0ce1c\n{\n    meta:\n        description = \"Auto-generated detection rule for weaponized Office document sample\"\n        author = \"Automated Office Triage Engine\"\n        date = \"2026-10-30\"\n        sha256 = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n        original_file = \"sample_corrupt.doc\"\n        reference = \"Static Analysis Detection Fusion\"\n        evidence_count = 0\n\n    strings:\n        $doc_hash = \"2de0ce1cb7d26300a135cd7bcc4352af8e1c2a933e49986d3ec894eb60cbfb6e\"\n\n    condition:\n        $doc_hash\n}\n"
   },
   "risk_assessment": {
     "raw_score": 0,

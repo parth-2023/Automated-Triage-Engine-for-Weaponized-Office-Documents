@@ -235,6 +235,8 @@ class FeatureExtractor:
             f4 = _measured("f4_stomping_discrepancy", round(float(stomping_sdi), 4))
         elif stomping_status == FeatureState.FAILED:
             f4 = _failed("f4_stomping_discrepancy", stomping_note or "P-code analysis failed.")
+        elif stomping_status == FeatureState.NOT_APPLICABLE:
+            f4 = _not_applicable("f4_stomping_discrepancy", stomping_note or "P-code analysis not applicable.")
         else:
             f4 = _unavailable("f4_stomping_discrepancy", stomping_note or "P-code analysis not performed.")
 
@@ -243,6 +245,8 @@ class FeatureExtractor:
             f6 = _measured("f6_pcode_token_count", pcode_tokens)
         elif pcode_status == FeatureState.FAILED:
             f6 = _failed("f6_pcode_token_count", pcode_note or "P-code extraction failed.")
+        elif pcode_status == FeatureState.NOT_APPLICABLE:
+            f6 = _not_applicable("f6_pcode_token_count", pcode_note or "P-code extraction not applicable.")
         else:
             f6 = _unavailable("f6_pcode_token_count", pcode_note or "pcodedmp unavailable or analysis not performed.")
 
@@ -251,6 +255,8 @@ class FeatureExtractor:
             f16 = _measured("f16_extracted_payload_bytes", payload_bytes)
         elif payload_status == FeatureState.FAILED:
             f16 = _failed("f16_extracted_payload_bytes", payload_note or "Payload extraction failed.")
+        elif payload_status == FeatureState.NOT_APPLICABLE:
+            f16 = _not_applicable("f16_extracted_payload_bytes", payload_note or "Payload extraction not applicable.")
         else:
             f16 = _unavailable("f16_extracted_payload_bytes", payload_note or "Payload extraction not performed.")
 
@@ -259,6 +265,8 @@ class FeatureExtractor:
             f17 = _measured("f17_resolved_api_hash_count", resolved_api_hashes)
         elif api_hash_status == FeatureState.FAILED:
             f17 = _failed("f17_resolved_api_hash_count", api_hash_note or "API hash resolution failed.")
+        elif api_hash_status == FeatureState.NOT_APPLICABLE:
+            f17 = _not_applicable("f17_resolved_api_hash_count", api_hash_note or "API hash resolution not applicable.")
         else:
             f17 = _unavailable("f17_resolved_api_hash_count", api_hash_note or "Shellcode analysis not performed or Capstone unavailable.")
 

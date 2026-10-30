@@ -60,50 +60,97 @@ class VBAExtractor:
 
         try:
             vbaparser = VBA_Parser(str(file_path))
-            if not vbaparser.detect_vba_macros():
-                vbaparser.close()
-                return VBAExtractionResult(
-                    has_macros=False,
-                    module_count=0,
-                    total_line_count=0,
-                    modules=[],
-                    olevba_analysis=[]
-                )
+            has_macros = vbaparser.detect_vba_macros()
 
-            # Extract all macro modules
-            for (filename, stream_path, vba_filename, vba_code) in vbaparser.extract_macros():
-                if not vba_code:
-                    continue
-                code_str = vba_code if isinstance(vba_code, str) else vba_code.decode("utf-8", "ignore")
-                lines = code_str.splitlines()
-                procs = cls._extract_procedures(code_str)
+            if has_macros:
+                # Extract all macro modules
+                for (filename, stream_path, vba_filename, vba_code) in vbaparser.extract_macros():
+                    if not vba_code:
+                        continue
+                    code_str = vba_code if isinstance(vba_code, str) else vba_code.decode("utf-8", "ignore")
+                    lines = code_str.splitlines()
+                    procs = cls._extract_procedures(code_str)
 
-                # Module name normalization
-                mod_name = vba_filename or Path(stream_path).name or "Module"
+                    # Module name normalization
+                    mod_name = vba_filename or Path(stream_path).name or "Module"
 
-                modules.append(VBAModule(
-                    vba_filename=vba_filename or "",
-                    stream_path=stream_path or "",
-                    module_name=mod_name,
-                    code=code_str,
-                    line_count=len(lines),
-                    procedures=procs
-                ))
+                    modules.append(VBAModule(
+                        vba_filename=vba_filename or "",
+                        stream_path=stream_path or "",
+                        module_name=mod_name,
+                        code=code_str,
+                        line_count=len(lines),
+                        procedures=procs
+                    ))
 
-            # Run olevba built-in static analysis scanner
-            try:
-                results = vbaparser.analyze_macros(show_decoded_strings=True)
-                if results:
-                    for kw_type, keyword, description in results:
-                        olevba_findings.append({
-                            "type": kw_type,
-                            "keyword": keyword,
-                            "description": description
-                        })
-            except Exception:
-                pass
+                # Run olevba built-in static analysis scanner
+                try:
+                    results = vbaparser.analyze_macros(show_decoded_strings=True)
+                    if results:
+                        for kw_type, keyword, description in results:
+                            olevba_findings.append({
+                                "type": kw_type,
+                                "keyword": keyword,
+                                "description": description
+                            })
+                except Exception:
+                    pass
 
             vbaparser.close()
+
+            # Defense-in-depth fallback: if no modules extracted by olevba,
+            # inspect OLE / OpenXML streams for raw VBA text
+            if not modules:
+                import io
+                import zipfile
+                import olefile
+                raw_streams: List[Tuple[str, bytes]] = []
+
+                if zipfile.is_zipfile(str(file_path)):
+                    try:
+                        with zipfile.ZipFile(str(file_path), "r") as z:
+                            for name in z.namelist():
+                                if "vba" in name.lower() or name.endswith(".bin"):
+                                    data = z.read(name)
+                                    if olefile.isOleFile(io.BytesIO(data)):
+                                        ole = olefile.OleFileIO(io.BytesIO(data))
+                                        for entry in ole.listdir(streams=True, storages=False):
+                                            try:
+                                                s_bytes = ole.openstream(entry).read()
+                                                if s_bytes:
+                                                    raw_streams.append(("/".join(entry), s_bytes))
+                                            except Exception:
+                                                pass
+                                        ole.close()
+                    except Exception:
+                        pass
+                elif olefile.isOleFile(str(file_path)):
+                    try:
+                        ole = olefile.OleFileIO(str(file_path))
+                        for entry in ole.listdir(streams=True, storages=False):
+                            try:
+                                s_bytes = ole.openstream(entry).read()
+                                if s_bytes:
+                                    raw_streams.append(("/".join(entry), s_bytes))
+                            except Exception:
+                                pass
+                        ole.close()
+                    except Exception:
+                        pass
+
+                for s_name, s_data in raw_streams:
+                    text = s_data.decode("utf-8", "ignore")
+                    if any(kw in text.lower() for kw in ["sub ", "function ", "attribute vb_", "end sub", "msgbox"]):
+                        procs = cls._extract_procedures(text)
+                        lines = text.splitlines()
+                        modules.append(VBAModule(
+                            vba_filename=s_name,
+                            stream_path=s_name,
+                            module_name=Path(s_name).name or "Module1",
+                            code=text,
+                            line_count=len(lines),
+                            procedures=procs
+                        ))
 
             total_lines = sum(m.line_count for m in modules)
             return VBAExtractionResult(

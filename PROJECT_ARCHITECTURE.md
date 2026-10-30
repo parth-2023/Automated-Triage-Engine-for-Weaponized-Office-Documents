@@ -87,6 +87,35 @@ The **Automated Triage Engine for Weaponized Office Documents** is a modular, de
 ### 3. Security Boundaries & Invariants
 1. **Zero Execution Policy**: Under no circumstances is VBA macro code, shellcode, or reconstructed binary data executed on the host system.
 2. **Safe Archive Decompression**: OpenXML archives (`.docm`, `.xlsm`) are verified against ZIP-slip vulnerabilities, maximum entry size limits (100MB), and maximum file count (10,000) prior to reading.
-3. **Restricted Expression Evaluation**: Deobfuscation uses explicit AST parsing and token evaluation. Unrestricted `eval()` and `exec()` are forbidden.
-4. **Sanitized Path Handling**: All temporary files are stored in isolated, secure temp directories using `tempfile.TemporaryDirectory` and cleaned up immediately.
+3. **Restricted Expression Evaluation**: Deobfuscation uses explicit AST parsing, variable symbol tables, and bounded mathematical evaluation. Unrestricted `eval()` and `exec()` are strictly forbidden.
+4. **Sanitized Path & HTML Handling**: All temporary files are stored in isolated, secure temp directories using `tempfile.TemporaryDirectory` and cleaned up immediately. In the web dashboard and exported HTML reports, all document-derived strings (filenames, macro snippets, explanations) are strictly escaped via `html.escape()` to prevent HTML and script injection attacks.
 5. **No Network Calling**: Static analysis is completely air-gapped and produces no external network calls.
+
+---
+
+### 4. Advanced Technical Specifications
+
+#### A. 5-State Feature Availability Model (`core/feature_extractor.py`)
+To prevent ambiguity between an indicator legitimately not found versus an unperformed/failed analysis stage, the 18-dimensional feature extractor implements five distinct operational states:
+- `MEASURED`: Analysis completed successfully and a valid non-zero numeric value was obtained.
+- `NOT_DETECTED`: Analysis completed successfully and verified the indicator was absent (explicit 0).
+- `NOT_APPLICABLE`: The feature does not apply to this document format (e.g. stomping or P-code on macro-free files).
+- `UNAVAILABLE`: The required dependency or parsing capability was missing (e.g. pcodedmp or Capstone not installed).
+- `FAILED`: Analysis was attempted but encountered an unhandled exception or malformed input.
+
+For machine learning integration, `to_numeric_list(missing_sentinel=-1.0)` explicitly encodes unmeasured/unavailable features as `-1.0`, keeping `0.0` reserved solely for verified absence.
+
+#### B. Supported ROR13 API Hashing Variants (`core/api_resolver.py`)
+The engine implements 5 explicit variants of 32-bit ROR13 export hashing:
+1. `ROR13_API_ONLY`: Canonical 32-bit right-rotation by 13 bits, seed 0, ASCII case-preserved, null byte excluded.
+2. `ROR13_API_UPPER`: Function name converted to uppercase prior to hashing.
+3. `ROR13_API_NULL_TERM`: Hashing includes trailing `\x00` null byte.
+4. `ROR13_MOD_API_SUM`: Metasploit stager convention combining `(ROR13(module) + ROR13(api)) & 0xFFFFFFFF`.
+5. `ROR13_CUSTOM_SEED`: Configurable non-zero seed hash computation.
+
+#### C. VBA Stomping Heuristics (`core/stomping_detector.py`)
+Semantic divergence is evaluated by comparing parsed P-code procedures, calls, and string literals against VBA source tokens. Critical Win32 API invocations (e.g. `Shell`, `VirtualAlloc`, `CreateThread`) present in compiled P-code but absent in VBA source code immediately elevate the Stomping Discrepancy Index (SDI) to $\ge 0.80$ with `CRITICAL` severity.
+
+#### D. YARA Rule Validation (`core/yara_synthesizer.py`)
+Generated rules are never marked valid or compiled unless they successfully compile with `yara.compile()`. Overly broad `any of them` conditions are prohibited in favor of multi-indicator synergy rules, and empty indicator sets fall back to precise SHA-256 hash assertions.
+

@@ -36,7 +36,8 @@ class TestReportingAndPipeline:
         pipeline = TriagePipeline()
         res = pipeline.analyze_file(fixtures["docm_harmless_vba"])
         assert res.doc.is_valid is True
-        assert res.vba.has_macros is True or len(res.vba.modules) >= 0
+        assert res.vba.has_macros is True
+        assert len(res.vba.modules) >= 1
         assert res.html_report_path.exists()
 
     def test_pipeline_on_corrupt_doc(self, fixtures):

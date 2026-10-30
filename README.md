@@ -25,36 +25,46 @@ Designed for cybersecurity research engineers, SOC analysts, and malware reverse
    - Attack pattern correlation (e.g. Staged Memory Injection Loader, Automated Payload Droppers).
    - Distinguishes direct observations from inferred behaviors.
 
-4. **VBA Stomping Analysis & SDI Metric**:
+4. **VBA Stomping Heuristic Analysis & SDI Metric**:
    - Disassembles compiled P-code tokens using `pcodedmp`.
-   - Compares P-code tokens against decompressed VBA source lines to detect source-code removal or modification.
-   - Computes the Stomping Discrepancy Index (SDI) [0.0 - 1.0].
+   - Performs heuristic semantic comparison between compiled P-code instructions and decompressed VBA source code to detect source-code removal or modification.
+   - Computes the Stomping Discrepancy Index (SDI) [0.0 - 1.0] using weighted discrepancy scoring, immediately flagging critical API invocations absent from source code.
+   - Clearly distinguishes between verified stomping, clean source/P-code parity, and uncompiled or synthetic modules where P-code extraction is not performed.
 
 5. **Restricted AST & Rule-Based Deobfuscation**:
    - Reconstructs `Chr()` / `ChrB()` concatenations with constant arithmetic evaluation.
    - Reverses `StrReverse()` encoded strings.
    - Resolves string concatenations, Base64 strings, and hexadecimal byte sequences.
+   - Evaluates variable assignment chains and bounded XOR loops over statically known byte arrays.
    - Zero execution policy: evaluated safely without using unrestricted `eval()` or `exec()`.
 
-6. **Payload Extraction & Shellcode Disassembly**:
-   - Recovers embedded byte arrays, hex buffers, and binary blobs.
-   - Disassembles candidate payload buffers using the `Capstone` engine (x86 and x64).
-   - Identifies shellcode execution heuristics (FS:[0x30] PEB traversal, Call/Pop delta calculation routines).
+6. **Payload Extraction & Heuristic Shellcode Disassembly**:
+   - Recovers embedded byte arrays, hex buffers, and binary blobs from VBA source code and deobfuscation outputs.
+   - Disassembles candidate payload buffers using the `Capstone` engine with multi-hypothesis architecture evaluation (`x86`, `x64`, or `auto`).
+   - Evaluates multi-signal shellcode execution heuristics (segment register PEB traversal `fs:[0x30]` / `gs:[0x60]`, Call/Pop delta calculation routines, consecutive stack pushes). Requires multi-signal corroboration before flagging buffers as shellcode.
 
-7. **Canonical 32-bit ROR13 API Hash Resolution**:
-   - Implements reference 32-bit ROR13 hash calculation for Win32 API names.
+7. **Configurable 32-bit ROR13 API Hash Resolution**:
+   - Implements documented variants of the canonical 32-bit ROR13 hash algorithm utilized by shellcode families:
+     - `ROR13_API_ONLY` (canonical case-preserved function name, null excluded)
+     - `ROR13_API_UPPER` (uppercase normalized API name)
+     - `ROR13_API_NULL_TERM` (null-terminated string hashing)
+     - `ROR13_MOD_API_SUM` (Metasploit stager convention combining module + API sum)
+     - `ROR13_CUSTOM_SEED` (configurable non-zero initial seed)
    - Precomputed database of standard Windows functions (`Kernel32`, `Ntdll`, `Urlmon`, `Ws2_32`).
-   - Scans candidate binary buffers for embedded little-endian API hashes.
+   - Scans candidate binary buffers for embedded little-endian API hashes and records algorithm variant and confidence.
 
-8. **Standardized 18-Dimensional Feature Vector**:
+8. **Standardized 18-Dimensional Feature Vector & 5-State Availability Model**:
    - Strictly populates the project's standardized `[f1..f18]` feature representation for triage comparisons and ML research.
+   - Supports 5 explicit feature availability states: `MEASURED`, `NOT_DETECTED`, `NOT_APPLICABLE`, `UNAVAILABLE`, `FAILED`.
+   - Uses `-1.0` as the explicit sentinel for missing/unmeasured features in numeric vector exports, preventing ambiguity with legitimate measured zeros.
 
-9. **YARA Detection Signature Synthesis**:
-   - Automatically generates syntactically valid YARA rules matching reconstructed strings and binary signatures.
-   - Compiles and validates rules using `yara-python`.
+9. **YARA Detection Signature Synthesis & Validation**:
+   - Automatically generates YARA rules matching reconstructed strings, API declarations, and binary signatures.
+   - Implements scoped condition formulation (container magic + indicator co-occurrence) to avoid overly broad `any of them` rules.
+   - Compiles and validates rules using `yara-python`; never marks a rule as valid unless compilation succeeds.
 
 10. **Interactive Gradio Dashboard & Exportable Reports**:
-    - Modern analyst-friendly Gradio web dashboard (`app.py`).
+    - Modern analyst-friendly Gradio web dashboard (`app.py`) with strict HTML escaping against script and tag injection.
     - One-click export of structured JSON and standalone, styled HTML analyst reports.
 
 ---
@@ -123,32 +133,33 @@ http://127.0.0.1:7860
 ### Dashboard Usage:
 1. Drag and drop any `.doc`, `.docm`, `.xls`, or `.xlsm` file into the upload zone.
 2. Click **Analyze Document**.
-3. View results organized across 8 dedicated tabs:
-   - **Executive Overview & Verdict**
-   - **Document Structure & Streams**
-   - **VBA Source & Modules**
-   - **Static Findings & Attack Fusion**
-   - **Deobfuscation & Payloads**
-   - **Shellcode & API Hashes**
-   - **18-Feature Vector**
-   - **YARA Rule & Export** (download HTML and JSON reports)
+3. View executive verdict, threat explanation, and file metadata in the primary banner.
+4. Explore in-depth technical evidence across the 7 dedicated dashboard tabs:
+   - **Tab 1: Document Structure & Streams**: OLE stream inventory, OpenXML parts, and Shannon entropy analysis.
+   - **Tab 2: VBA Source & Modules**: Extracted VBA code, procedure listings, and raw macro inspection.
+   - **Tab 3: Static Findings & Attack Fusion**: Deduplicated indicator findings and correlated multi-stage attack patterns.
+   - **Tab 4: Deobfuscation & Payloads**: Reconstructed strings, variable assignments, and recovered payload buffers.
+   - **Tab 5: Shellcode & API Hashes**: Capstone disassembly, PEB/Call-Pop heuristics, and resolved 32-bit ROR13 API hashes.
+   - **Tab 6: 18-Feature Vector**: Standardized `[f1..f18]` vector with 5-state availability tracking.
+   - **Tab 7: YARA Rule & Export**: Validated YARA rule preview, with downloads for HTML analyst reports and machine-readable JSON.
 
 ---
 
 ## Running Automated Tests
 
-Run the full automated test suite covering all 6 phases:
+Run the full automated test suite covering all phases and end-to-end integration:
 ```powershell
 python -m pytest tests/ -v
 ```
 
-All 52 test cases across all six phases execute without errors:
-- `tests/test_phase1_ingestion.py` (19 tests)
-- `tests/test_phase2_static_detection.py` (10 tests)
-- `tests/test_phase3_advanced_vba.py` (10 tests)
-- `tests/test_phase4_reporting.py` (4 tests)
-- `tests/test_phase5_shellcode_api_hash.py` (7 tests)
-- `tests/test_phase6_yara_integration.py` (2 tests)
+All 73 test cases across the entire test suite execute and pass:
+- `tests/test_phase1_ingestion.py` (19 tests) — Container ingestion, hash computation, entropy, zip bomb defense, VBA extraction.
+- `tests/test_phase2_static_detection.py` (14 tests) — Static detection, fusion, YAML-weighted risk engine, 5 feature states, -1.0 sentinel.
+- `tests/test_phase3_advanced_vba.py` (14 tests) — Deobfuscator variable propagation, bounded XOR loops, stomping semantic comparison, payload extraction.
+- `tests/test_phase4_reporting.py` (4 tests) — Report generation, JSON schema validation, HTML export, Gradio callback.
+- `tests/test_phase5_shellcode_api_hash.py` (11 tests) — ROR13 variants, multi-hypothesis shellcode analysis, auto arch detection, benign buffer non-classification.
+- `tests/test_phase6_yara_integration.py` (4 tests) — YARA rule compilation, hash fallback, special character escaping, syntax validation.
+- `tests/test_end_to_end_pipeline.py` (7 tests) — Full pipeline execution (benign, macro, corrupt, unsupported) and Gradio HTML injection defenses.
 
 ---
 

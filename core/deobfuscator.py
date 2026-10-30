@@ -61,6 +61,7 @@ class DeobfuscationResult:
     confidence: str = "High"
     is_complete: bool = True   # False if reconstruction was partial or uncertain
     note: str = ""             # explanation when incomplete or low-confidence
+    raw_bytes: Optional[bytes] = None  # Decoded binary payload bytes if applicable
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +260,7 @@ class RestrictedVbaDeobfuscator:
                         line_number=line_no,
                         confidence="Medium",   # base64 candidates may be false positives
                         is_complete=True,
+                        raw_bytes=decoded,
                     ))
             except Exception:
                 pass
@@ -281,6 +283,7 @@ class RestrictedVbaDeobfuscator:
                             line_number=line_no,
                             confidence="Medium",
                             is_complete=True,
+                            raw_bytes=decoded,
                         ))
                 except Exception:
                     pass
@@ -297,28 +300,91 @@ class RestrictedVbaDeobfuscator:
             raise ValueError(f"Data exceeds MAX_DECODED_BYTES ({MAX_DECODED_BYTES})")
         return bytes([b ^ (key & 0xFF) for b in data])
 
+    # Variable assignment: varname = <expr>
+    ASSIGN_ANY = re.compile(r"^\s*(?:Set\s+|Let\s+)?([a-zA-Z_]\w*)\s*=\s*(.+)$", re.IGNORECASE)
+    BYTE_ARRAY_PATTERN = re.compile(r"Array\s*\(\s*([0-9a-fA-F&Hh,\s]{10,})\s*\)", re.IGNORECASE)
+
     @classmethod
-    def detect_xor_loop(cls, code_block: str, module_name: str, line_no: int) -> List[DeobfuscationResult]:
+    def _parse_numeric_tokens(cls, tokens_str: str) -> Optional[bytes]:
+        """Convert comma-separated VBA numeric/hex tokens to bytes."""
+        parts = [p.strip() for p in tokens_str.split(",") if p.strip()]
+        if len(parts) > MAX_DECODED_BYTES:
+            return None
+        byte_list = []
+        for p in parts:
+            try:
+                if p.lower().startswith("&h"):
+                    val = int(p[2:], 16)
+                else:
+                    val = int(p)
+                if 0 <= val <= 255:
+                    byte_list.append(val)
+                else:
+                    return None
+            except ValueError:
+                return None
+        return bytes(byte_list) if byte_list else None
+
+    @classmethod
+    def _evaluate_assignment_rhs(cls, rhs: str, var_table: Dict[str, str]) -> Optional[str]:
+        """Safely evaluate simple string assignments (constants, Chr, StrReverse, concat)."""
+        rhs = rhs.strip()
+        # Literal string: "hello"
+        if rhs.startswith('"') and rhs.endswith('"') and rhs.count('"') == 2:
+            return rhs[1:-1]
+
+        # StrReverse("...")
+        strrev = cls.STRREV_PATTERN.match(rhs)
+        if strrev:
+            return strrev.group(1)[::-1]
+
+        # Chr chains: Chr(65) & Chr(66)
+        if "chr" in rhs.lower():
+            chr_res = cls.deobfuscate_chr_chains(rhs, "eval", 0)
+            if chr_res and chr_res[0].is_complete:
+                return chr_res[0].reconstructed_value
+
+        # Variable substitution & concat: var1 & "suffix"
+        if "&" in rhs:
+            substituted = cls._substitute_vars(rhs, var_table)
+            concat_res = cls.deobfuscate_concatenations(substituted, "eval", 0)
+            if concat_res:
+                return concat_res[0].reconstructed_value
+
+        # Direct variable copy: var2 = var1
+        if rhs.lower() in var_table:
+            return var_table[rhs.lower()]
+
+        return None
+
+    @classmethod
+    def detect_xor_loop(
+        cls,
+        code_block: str,
+        module_name: str,
+        line_no: int,
+        byte_table: Optional[Dict[str, bytes]] = None
+    ) -> List[DeobfuscationResult]:
         """
-        Detect and record simple bounded XOR loop patterns without executing them.
-        Records the detected pattern as evidence; does not attempt to decrypt.
+        Detect and safely evaluate bounded XOR loops when target buffer is statically known.
+        Never executes live code; uses bounded mathematical byte transformation.
         """
         results = []
-        for match in cls.XOR_LOOP_PATTERN.finditer(code_block):
+        byte_table = byte_table or {}
+
+        # Loop matching buffer variable name: For i = 0 To N : buf(i) = buf(i) Xor KEY : Next i
+        detailed_xor = re.compile(
+            r"For\s+\w+\s*=\s*0\s+To\s+(\d+)\s*[:\n]"
+            r".*?([a-zA-Z_]\w*)\s*\(\s*\w+\s*\)\s*=\s*\2\s*\(\s*\w+\s*\)\s+[Xx][Oo][Rr]\s+(\d+)",
+            re.IGNORECASE | re.DOTALL
+        )
+
+        for match in detailed_xor.finditer(code_block):
             iteration_count = int(match.group(1))
-            xor_key = int(match.group(2))
-            if iteration_count <= MAX_LOOP_ITER:
-                results.append(DeobfuscationResult(
-                    original_expression=match.group(0)[:80],
-                    reconstructed_value=f"[XOR_LOOP: key=0x{xor_key:02X}, iterations={iteration_count+1}]",
-                    transformation_type="XOR_DECRYPT",
-                    source_module=module_name,
-                    line_number=line_no,
-                    confidence="Medium",
-                    is_complete=False,
-                    note=f"XOR loop detected (key=0x{xor_key:02X}). Cannot reconstruct result without executing code.",
-                ))
-            else:
+            buf_name = match.group(2).lower()
+            xor_key = int(match.group(3))
+
+            if iteration_count > MAX_LOOP_ITER:
                 results.append(DeobfuscationResult(
                     original_expression=match.group(0)[:80],
                     reconstructed_value=f"[XOR_LOOP_OVERSIZED: iterations={iteration_count+1}]",
@@ -329,6 +395,43 @@ class RestrictedVbaDeobfuscator:
                     is_complete=False,
                     note=f"XOR loop exceeds MAX_LOOP_ITER ({MAX_LOOP_ITER}); not reconstructed.",
                 ))
+                continue
+
+            # If the buffer is known from static assignments, safely evaluate!
+            if buf_name in byte_table:
+                known_bytes = byte_table[buf_name]
+                eval_len = min(iteration_count + 1, len(known_bytes))
+                target_slice = known_bytes[:eval_len]
+                try:
+                    decrypted = cls.evaluate_xor_stream(target_slice, xor_key)
+                    text_preview = decrypted.decode("utf-8", "ignore")
+                    results.append(DeobfuscationResult(
+                        original_expression=match.group(0)[:80],
+                        reconstructed_value=text_preview if any(c.isalnum() for c in text_preview) else f"<Binary Buffer: {len(decrypted)} bytes>",
+                        transformation_type="XOR_DECRYPT",
+                        source_module=module_name,
+                        line_number=line_no,
+                        confidence="High",
+                        is_complete=True,
+                        raw_bytes=decrypted,
+                        note=f"Safely evaluated bounded XOR loop on statically known buffer '{buf_name}' (key=0x{xor_key:02X})."
+                    ))
+                    continue
+                except Exception:
+                    pass
+
+            # Otherwise, record as evidence with is_complete=False
+            results.append(DeobfuscationResult(
+                original_expression=match.group(0)[:80],
+                reconstructed_value=f"[XOR_LOOP: key=0x{xor_key:02X}, iterations={iteration_count+1}]",
+                transformation_type="XOR_DECRYPT",
+                source_module=module_name,
+                line_number=line_no,
+                confidence="Medium",
+                is_complete=False,
+                note=f"XOR loop detected (key=0x{xor_key:02X}). Target buffer '{buf_name}' not statically resolved.",
+            ))
+
         return results
 
     @classmethod
@@ -337,8 +440,9 @@ class RestrictedVbaDeobfuscator:
         results: List[DeobfuscationResult] = []
         lines = code.splitlines()
 
-        # Variable symbol table for simple assignment propagation
+        # Variable symbol tables
         var_table: Dict[str, str] = {}
+        byte_table: Dict[str, bytes] = {}
 
         for idx, line in enumerate(lines, start=1):
             stripped = line.strip()
@@ -360,12 +464,25 @@ class RestrictedVbaDeobfuscator:
             # 4. Base64 and Hex
             results.extend(cls.deobfuscate_base64_and_hex(expanded_line, module_name, idx))
 
-            # 5. Simple variable assignment tracking: var = "literal"
-            assign_match = cls.ASSIGN_LITERAL.match(line)
+            # 5. Variable assignment tracking (constants, expressions, byte arrays)
+            assign_match = cls.ASSIGN_ANY.match(line)
             if assign_match:
-                var_table[assign_match.group(1).lower()] = assign_match.group(2)
+                vname = assign_match.group(1).lower()
+                rhs = assign_match.group(2).strip()
 
-        # 6. Whole-module XOR loop detection
-        results.extend(cls.detect_xor_loop(code, module_name, 0))
+                # Check if RHS is a byte array: buf = Array(...)
+                arr_match = cls.BYTE_ARRAY_PATTERN.search(rhs)
+                if arr_match:
+                    parsed = cls._parse_numeric_tokens(arr_match.group(1))
+                    if parsed:
+                        byte_table[vname] = parsed
+
+                # Evaluate string expression
+                val = cls._evaluate_assignment_rhs(rhs, var_table)
+                if val is not None and len(val) <= MAX_DECODED_BYTES:
+                    var_table[vname] = val
+
+        # 6. Whole-module XOR loop detection & safe evaluation
+        results.extend(cls.detect_xor_loop(code, module_name, 0, byte_table=byte_table))
 
         return results

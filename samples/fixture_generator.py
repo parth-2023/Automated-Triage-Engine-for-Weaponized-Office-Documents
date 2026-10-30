@@ -69,85 +69,10 @@ def create_minimal_openxml(target_path: Path, vba_code: str = None, is_excel: bo
 
 def create_minimal_vba_bin(vba_source: str) -> bytes:
     """
-    Generate minimal OLE compound file representing vbaProject.bin with VBA streams.
+    Generate minimal OLE compound file representing vbaProject.bin with VBA streams
+    stored in a valid ministream.
     """
-    buf = io.BytesIO()
-    # Construct an OLE file with VBA project streams
-    # Minimum OLE header: 512 bytes header
-    # To ensure olefile and olevba parse it, we use olefile or standard layout
-    # In OLE, header magic is D0 CF 11 E0 A1 B1 1A E1
-    ole = olefile.OleFileIO()
-    # We can create a valid OLE file using standard OLE blocks
-    # An OLE file has sectors of 512 bytes
-    header = bytearray(512)
-    header[0:8] = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
-    header[28:30] = b"\xFE\xFF" # Little endian
-    header[30:32] = b"\x09\x00" # Sector size 2^9 = 512
-    header[32:34] = b"\x06\x00" # Mini sector size 2^6 = 64
-    header[44:48] = b"\x01\x00\x00\x00" # 1 SAT sector
-    header[48:52] = b"\x01\x00\x00\x00" # Dir sector at sec 1
-    header[60:64] = b"\xFE\xFF\xFF\xFF" # Mini FAT end
-    header[68:72] = b"\xFE\xFF\xFF\xFF" # Mini stream end
-    header[76:80] = b"\x00\x00\x00\x00" # First SAT sector at sector 0
-    # Fill remainder of header MSAT array (entries 0..108)
-    for i in range(109):
-        offset = 76 + i * 4
-        if i == 0:
-            header[offset:offset+4] = b"\x00\x00\x00\x00"
-        else:
-            header[offset:offset+4] = b"\xFE\xFF\xFF\xFF" # End of chain
-
-    # Sector 0: SAT (Sector Allocation Table)
-    sat = bytearray(512)
-    # Entry 0: SAT itself -> FAT_SECT (0xFFFFFFFD)
-    sat[0:4] = b"\xFD\xFF\xFF\xFF"
-    # Entry 1: Directory sector -> ENDOFCHAIN (0xFFFFFFFE)
-    sat[4:8] = b"\xFE\xFF\xFF\xFF"
-    # Entry 2: Stream 1 (VBA code) -> ENDOFCHAIN
-    sat[8:12] = b"\xFE\xFF\xFF\xFF"
-    # Mark remaining SAT entries as unallocated (0xFFFFFFFF)
-    for i in range(3, 128):
-        sat[i*4:(i+1)*4] = b"\xFF\xFF\xFF\xFF"
-
-    # Sector 1: Directory sector (4 entries of 128 bytes each)
-    dir_sec = bytearray(512)
-    # Entry 0: Root Entry (type 5)
-    root_name = "Root Entry\x00".encode("utf-16le")
-    dir_sec[0:len(root_name)] = root_name
-    dir_sec[64:66] = len(root_name).to_bytes(2, "little")
-    dir_sec[66] = 5 # Root storage
-    dir_sec[67] = 1 # Black
-    dir_sec[68:72] = b"\xFF\xFF\xFF\xFF" # Left sibling
-    dir_sec[72:76] = b"\xFF\xFF\xFF\xFF" # Right sibling
-    dir_sec[76:80] = b"\x01\x00\x00\x00" # Child = entry 1 (Dir stream)
-    dir_sec[116:120] = b"\xFE\xFF\xFF\xFF" # Starting sec
-    dir_sec[120:124] = b"\x00\x00\x00\x00" # Size
-
-    # Entry 1: VBA Stream (type 2 = stream)
-    stream_name = "VBA_Code\x00".encode("utf-16le")
-    dir_sec[128:128+len(stream_name)] = stream_name
-    dir_sec[192:194] = len(stream_name).to_bytes(2, "little")
-    dir_sec[194] = 2 # User stream
-    dir_sec[195] = 1 # Black
-    dir_sec[196:200] = b"\xFF\xFF\xFF\xFF" # Left
-    dir_sec[200:204] = b"\xFF\xFF\xFF\xFF" # Right
-    dir_sec[204:208] = b"\xFF\xFF\xFF\xFF" # Child
-    dir_sec[244:248] = b"\x02\x00\x00\x00" # Sector 2
     code_bytes = vba_source.encode("utf-8")
-    dir_sec[248:252] = len(code_bytes).to_bytes(4, "little")
-
-    # Sector 2: Stream content
-    stream_sec = bytearray(512)
-    stream_sec[0:len(code_bytes)] = code_bytes
-
-    return bytes(header) + bytes(sat) + bytes(dir_sec) + bytes(stream_sec)
-
-
-def create_minimal_ole(target_path: Path, stream_data: bytes = b"Benign OLE Content", stream_name: str = "SummaryInformation") -> Path:
-    """
-    Create a valid minimal OLE document (.doc or .xls).
-    """
-    target_path.parent.mkdir(parents=True, exist_ok=True)
     header = bytearray(512)
     header[0:8] = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
     header[28:30] = b"\xFE\xFF"
@@ -155,7 +80,9 @@ def create_minimal_ole(target_path: Path, stream_data: bytes = b"Benign OLE Cont
     header[32:34] = b"\x06\x00"
     header[44:48] = b"\x01\x00\x00\x00"
     header[48:52] = b"\x01\x00\x00\x00"
-    header[60:64] = b"\xFE\xFF\xFF\xFF"
+    header[56:60] = b"\x00\x10\x00\x00"
+    header[60:64] = b"\x03\x00\x00\x00"
+    header[64:68] = b"\x01\x00\x00\x00"
     header[68:72] = b"\xFE\xFF\xFF\xFF"
     header[76:80] = b"\x00\x00\x00\x00"
     for i in range(1, 109):
@@ -165,7 +92,8 @@ def create_minimal_ole(target_path: Path, stream_data: bytes = b"Benign OLE Cont
     sat[0:4] = b"\xFD\xFF\xFF\xFF"
     sat[4:8] = b"\xFE\xFF\xFF\xFF"
     sat[8:12] = b"\xFE\xFF\xFF\xFF"
-    for i in range(3, 128):
+    sat[12:16] = b"\xFE\xFF\xFF\xFF"
+    for i in range(4, 128):
         sat[i*4:(i+1)*4] = b"\xFF\xFF\xFF\xFF"
 
     dir_sec = bytearray(512)
@@ -177,8 +105,74 @@ def create_minimal_ole(target_path: Path, stream_data: bytes = b"Benign OLE Cont
     dir_sec[68:72] = b"\xFF\xFF\xFF\xFF"
     dir_sec[72:76] = b"\xFF\xFF\xFF\xFF"
     dir_sec[76:80] = b"\x01\x00\x00\x00"
+    dir_sec[116:120] = b"\x02\x00\x00\x00"
+    dir_sec[120:124] = (512).to_bytes(4, "little")
 
-    # User stream entry
+    stream_name = "VBA_Code\x00".encode("utf-16le")
+    dir_sec[128:128+len(stream_name)] = stream_name
+    dir_sec[192:194] = len(stream_name).to_bytes(2, "little")
+    dir_sec[194] = 2
+    dir_sec[195] = 1
+    dir_sec[196:200] = b"\xFF\xFF\xFF\xFF"
+    dir_sec[200:204] = b"\xFF\xFF\xFF\xFF"
+    dir_sec[204:208] = b"\xFF\xFF\xFF\xFF"
+    dir_sec[244:248] = b"\x00\x00\x00\x00"
+    dir_sec[248:252] = len(code_bytes).to_bytes(4, "little")
+
+    ministream_sec = bytearray(512)
+    ministream_sec[0:len(code_bytes)] = code_bytes
+
+    minifat_sec = bytearray(512)
+    num_mini = (len(code_bytes) + 63) // 64
+    for m in range(num_mini - 1):
+        minifat_sec[m*4:(m+1)*4] = (m + 1).to_bytes(4, "little")
+    minifat_sec[(num_mini-1)*4:num_mini*4] = b"\xFE\xFF\xFF\xFF"
+    for m in range(num_mini, 128):
+        minifat_sec[m*4:(m+1)*4] = b"\xFF\xFF\xFF\xFF"
+
+    return bytes(header) + bytes(sat) + bytes(dir_sec) + bytes(ministream_sec) + bytes(minifat_sec)
+
+
+def create_minimal_ole(target_path: Path, stream_data: bytes = b"Benign OLE Content", stream_name: str = "SummaryInformation") -> Path:
+    """
+    Create a valid minimal OLE document (.doc or .xls) with stream data in ministream.
+    """
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    header = bytearray(512)
+    header[0:8] = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
+    header[28:30] = b"\xFE\xFF"
+    header[30:32] = b"\x09\x00"
+    header[32:34] = b"\x06\x00"
+    header[44:48] = b"\x01\x00\x00\x00"
+    header[48:52] = b"\x01\x00\x00\x00"
+    header[56:60] = b"\x00\x10\x00\x00"
+    header[60:64] = b"\x03\x00\x00\x00"
+    header[64:68] = b"\x01\x00\x00\x00"
+    header[68:72] = b"\xFE\xFF\xFF\xFF"
+    header[76:80] = b"\x00\x00\x00\x00"
+    for i in range(1, 109):
+        header[76 + i * 4 : 80 + i * 4] = b"\xFE\xFF\xFF\xFF"
+
+    sat = bytearray(512)
+    sat[0:4] = b"\xFD\xFF\xFF\xFF"
+    sat[4:8] = b"\xFE\xFF\xFF\xFF"
+    sat[8:12] = b"\xFE\xFF\xFF\xFF"
+    sat[12:16] = b"\xFE\xFF\xFF\xFF"
+    for i in range(4, 128):
+        sat[i*4:(i+1)*4] = b"\xFF\xFF\xFF\xFF"
+
+    dir_sec = bytearray(512)
+    root_name = "Root Entry\x00".encode("utf-16le")
+    dir_sec[0:len(root_name)] = root_name
+    dir_sec[64:66] = len(root_name).to_bytes(2, "little")
+    dir_sec[66] = 5
+    dir_sec[67] = 1
+    dir_sec[68:72] = b"\xFF\xFF\xFF\xFF"
+    dir_sec[72:76] = b"\xFF\xFF\xFF\xFF"
+    dir_sec[76:80] = b"\x01\x00\x00\x00"
+    dir_sec[116:120] = b"\x02\x00\x00\x00"
+    dir_sec[120:124] = (512).to_bytes(4, "little")
+
     s_name = (stream_name + "\x00").encode("utf-16le")
     dir_sec[128:128+len(s_name)] = s_name
     dir_sec[192:194] = len(s_name).to_bytes(2, "little")
@@ -187,13 +181,21 @@ def create_minimal_ole(target_path: Path, stream_data: bytes = b"Benign OLE Cont
     dir_sec[196:200] = b"\xFF\xFF\xFF\xFF"
     dir_sec[200:204] = b"\xFF\xFF\xFF\xFF"
     dir_sec[204:208] = b"\xFF\xFF\xFF\xFF"
-    dir_sec[244:248] = b"\x02\x00\x00\x00"
+    dir_sec[244:248] = b"\x00\x00\x00\x00"
     dir_sec[248:252] = len(stream_data).to_bytes(4, "little")
 
-    stream_sec = bytearray(512)
-    stream_sec[0:len(stream_data)] = stream_data
+    ministream_sec = bytearray(512)
+    ministream_sec[0:len(stream_data)] = stream_data
 
-    data = bytes(header) + bytes(sat) + bytes(dir_sec) + bytes(stream_sec)
+    minifat_sec = bytearray(512)
+    num_mini = (len(stream_data) + 63) // 64
+    for m in range(num_mini - 1):
+        minifat_sec[m*4:(m+1)*4] = (m + 1).to_bytes(4, "little")
+    minifat_sec[(num_mini-1)*4:num_mini*4] = b"\xFE\xFF\xFF\xFF"
+    for m in range(num_mini, 128):
+        minifat_sec[m*4:(m+1)*4] = b"\xFF\xFF\xFF\xFF"
+
+    data = bytes(header) + bytes(sat) + bytes(dir_sec) + bytes(ministream_sec) + bytes(minifat_sec)
     with open(target_path, "wb") as f:
         f.write(data)
 

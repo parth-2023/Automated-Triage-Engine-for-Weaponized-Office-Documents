@@ -131,5 +131,7 @@ class TestVBAExtractor:
 
     def test_extract_harmless_vba(self, fixtures):
         res = VBAExtractor.extract_vba(fixtures["docm_harmless_vba"])
-        # Our synthetic vbaProject.bin contains the harmless macro stream
-        assert res.has_macros is True or len(res.olevba_analysis) >= 0
+        assert res.has_macros is True
+        assert res.module_count >= 1
+        assert len(res.modules) >= 1
+        assert any("Document_Open" in p for p in res.modules[0].procedures)

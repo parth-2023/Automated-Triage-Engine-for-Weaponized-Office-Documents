@@ -4,10 +4,11 @@ Produces comprehensive, self-contained HTML reports and structured JSON reports
 incorporating all phases of static triage evidence, risk calculations, and limitations.
 """
 
+import html
 import json
 from pathlib import Path
 from dataclasses import asdict
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from core.ingestion import IngestedDocument
 from core.document_inspector import StructuralInspectionResult
@@ -40,9 +41,24 @@ class ReportGenerator:
         shellcode_report: ShellcodeAnalysisReport,
         feature_vector: DocumentFeatureVector,
         yara_rule: SynthesizedYaraRule,
+        analysis_status: str = "COMPLETED",
+        analysis_limitations: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Consolidate all pipeline artifacts into a single report dictionary."""
+        effective_limitations = list(analysis_limitations or [])
+        for lim in verdict.limitations:
+            if lim not in effective_limitations:
+                effective_limitations.append(lim)
+
         return {
+            "analysis_overview": {
+                "analysis_status": analysis_status,
+                "security_verdict": getattr(verdict, "security_verdict", verdict.classification),
+                "risk_classification": verdict.classification,
+                "normalized_score": verdict.normalized_score,
+                "is_complete": analysis_status == "COMPLETED",
+                "limitations": effective_limitations,
+            },
             "sample_identity": {
                 "original_filename": doc.original_filename,
                 "safe_filename": doc.safe_filename,
@@ -170,6 +186,12 @@ class ReportGenerator:
                 ],
             },
             "feature_vector_18d": feature_vector.to_dict(),
+            "feature_vector_details": feature_vector.to_detail_dict(),
+            "feature_availability": {
+                "analysis_complete": feature_vector.analysis_complete,
+                "unavailable_features": feature_vector.unavailable_features,
+                "failed_features": feature_vector.failed_features,
+            },
             "synthesized_yara_rule": {
                 "rule_name": yara_rule.rule_name,
                 "is_valid_syntax": yara_rule.is_valid_syntax,
@@ -196,10 +218,11 @@ class ReportGenerator:
 
     @classmethod
     def export_html(cls, report_data: Dict[str, Any], output_path: Path) -> Path:
-        """Render a self-contained, professional HTML report."""
+        """Render a self-contained, professional HTML report with full HTML escaping."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         verdict = report_data["risk_assessment"]
+        overview = report_data.get("analysis_overview", {})
         ident = report_data["sample_identity"]
         struct = report_data["structural_analysis"]
         fused = report_data["static_detection_and_fusion"]
@@ -212,41 +235,83 @@ class ReportGenerator:
             "HIGH": "#ea580c",
             "MEDIUM": "#d97706",
             "LOW": "#16a34a",
+            "PARTIAL": "#eab308",
             "INCONCLUSIVE": "#6b7280",
+            "UNSUPPORTED": "#9ca3af",
             "UNSUPPORTED FORMAT": "#9ca3af",
         }
-        badge_color = badge_colors.get(verdict["classification"], "#4b5563")
+        classification = verdict.get("classification", "INCONCLUSIVE")
+        badge_color = badge_colors.get(classification, "#4b5563")
+
+        analysis_status = overview.get("analysis_status", "COMPLETED")
+        status_badge_colors = {
+            "COMPLETED": "#16a34a",
+            "PARTIAL": "#eab308",
+            "FAILED": "#dc2626",
+            "UNSUPPORTED": "#9ca3af",
+            "INVALID_INPUT": "#6b7280",
+        }
+        status_color = status_badge_colors.get(analysis_status, "#4b5563")
 
         findings_rows = ""
         for f in fused["deduplicated_findings"]:
+            sev_esc = html.escape(str(f["severity"]))
+            ind_esc = html.escape(str(f["indicator_name"]))
+            cat_esc = html.escape(str(f["category"]))
+            src_esc = html.escape(f"{f['source_module']} (L{f['line_number'] or 'N/A'})")
+            evi_esc = html.escape(str(f["evidence"]))
+            exp_esc = html.escape(str(f["explanation"]))
             findings_rows += f"""
             <tr>
-                <td><span class="badge {f['severity'].lower()}">{f['severity']}</span></td>
-                <td><strong>{f['indicator_name']}</strong></td>
-                <td>{f['category']}</td>
-                <td>{f['source_module']} (L{f['line_number'] or 'N/A'})</td>
-                <td><code>{f['evidence']}</code></td>
-                <td>{f['explanation']}</td>
+                <td><span class="badge {sev_esc.lower()}">{sev_esc}</span></td>
+                <td><strong>{ind_esc}</strong></td>
+                <td>{cat_esc}</td>
+                <td>{src_esc}</td>
+                <td><code>{evi_esc}</code></td>
+                <td>{exp_esc}</td>
             </tr>
             """
 
         streams_rows = ""
         for s in struct["streams"][:15]:
+            s_name = html.escape(str(s["name"]))
+            s_path = html.escape(str(s["storage_path"]))
+            s_size = s["size_bytes"]
+            s_ent = s["entropy"]
+            s_vba = "Yes" if s["is_vba_related"] else "No"
             streams_rows += f"""
             <tr>
-                <td>{s['name']}</td>
-                <td>{s['storage_path']}</td>
-                <td>{s['size_bytes']} bytes</td>
-                <td>{s['entropy']}</td>
-                <td>{'Yes' if s['is_vba_related'] else 'No'}</td>
+                <td>{s_name}</td>
+                <td>{s_path}</td>
+                <td>{s_size} bytes</td>
+                <td>{s_ent}</td>
+                <td>{s_vba}</td>
             </tr>
+            """
+
+        safe_original_fn = html.escape(str(ident.get("original_filename", "unknown")))
+        safe_fn = html.escape(str(ident.get("safe_filename", "unknown")))
+        safe_fmt = html.escape(str(ident.get("detected_format", "unknown")))
+        safe_explanation = html.escape(str(verdict.get("explanation", "")))
+        safe_classification = html.escape(str(classification))
+        safe_yara_rule = html.escape(str(yara.get("rule_text", "")))
+        sec_verdict = html.escape(str(overview.get("security_verdict", safe_classification)))
+
+        limitations_items = "".join(f"<li>{html.escape(str(lim))}</li>" for lim in verdict.get("limitations", []))
+
+        incomplete_banner = ""
+        if analysis_status == "PARTIAL":
+            incomplete_banner = """
+            <div style="background: #854d0e; color: #fef08a; padding: 12px 18px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ca8a04;">
+                <strong>WARNING: PARTIAL ANALYSIS</strong> — One or more analysis stages could not be completed. The reported score reflects only available evidence.
+            </div>
             """
 
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Office Document Malware Triage Report - {ident['safe_filename']}</title>
+    <title>Office Document Malware Triage Report - {safe_fn}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 24px; }}
         .container {{ max-width: 1200px; margin: 0 auto; }}
@@ -256,6 +321,7 @@ class ReportGenerator:
         .badge.high {{ background: #ea580c; color: white; }}
         .badge.medium {{ background: #d97706; color: white; }}
         .badge.low {{ background: #16a34a; color: white; }}
+        .badge.partial {{ background: #eab308; color: black; }}
         .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }}
         .card {{ background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; }}
         .card h3 {{ margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; }}
@@ -263,38 +329,43 @@ class ReportGenerator:
         table {{ width: 100%; border-collapse: collapse; margin-top: 12px; background: #1e293b; border-radius: 8px; overflow: hidden; }}
         th, td {{ padding: 12px 14px; text-align: left; border-bottom: 1px solid #334155; font-size: 0.9rem; }}
         th {{ background: #0f172a; color: #94a3b8; }}
-        code {{ background: #0f172a; padding: 2px 6px; border-radius: 4px; color: #f43f5e; font-family: monospace; }}
+        code {{ background: #0f172a; padding: 2px 6px; border-radius: 4px; color: #f43f5e; font-family: monospace; word-break: break-all; }}
         pre {{ background: #0f172a; padding: 14px; border-radius: 8px; overflow-x: auto; color: #a5f3fc; font-size: 0.85rem; border: 1px solid #334155; }}
     </style>
 </head>
 <body>
 <div class="container">
+    {incomplete_banner}
     <div class="header">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <h1 style="margin: 0 0 8px 0;">Office Document Malware Triage Report</h1>
-                <div style="color: #94a3b8;">Sample: <strong>{ident['original_filename']}</strong></div>
+                <div style="color: #94a3b8;">Sample: <strong>{safe_original_fn}</strong></div>
+                <div style="margin-top: 6px;">
+                    <span class="badge" style="background-color: {status_color}; font-size: 0.8rem;">Status: {html.escape(analysis_status)}</span>
+                    <span style="color: #cbd5e1; font-size: 0.9rem; margin-left: 10px;">Verdict: <strong>{sec_verdict}</strong></span>
+                </div>
             </div>
             <div style="text-align: right;">
                 <span class="badge" style="background-color: {badge_color}; font-size: 1.2rem; padding: 10px 20px;">
-                    {verdict['classification']} (Score: {verdict['normalized_score']}/100)
+                    {safe_classification} (Score: {verdict.get('normalized_score', 0)}/100)
                 </span>
             </div>
         </div>
-        <p style="margin: 16px 0 0 0; color: #cbd5e1;">{verdict['explanation']}</p>
+        <p style="margin: 16px 0 0 0; color: #cbd5e1;">{safe_explanation}</p>
     </div>
 
     <div class="grid">
         <div class="card">
             <h3>SHA-256 Digest</h3>
             <div style="font-family: monospace; font-size: 0.85rem; word-break: break-all; color: #38bdf8;">
-                {ident['hashes']['sha256']}
+                {ident.get('hashes', {}).get('sha256', 'N/A')}
             </div>
         </div>
         <div class="card">
             <h3>File Size & Format</h3>
-            <div class="value">{ident['file_size_bytes']} B</div>
-            <div style="color: #94a3b8; font-size: 0.85rem;">Format: {ident['detected_format']} | Entropy: {ident['file_entropy']}</div>
+            <div class="value">{ident.get('file_size_bytes', 0)} B</div>
+            <div style="color: #94a3b8; font-size: 0.85rem;">Format: {safe_fmt} | Entropy: {ident.get('file_entropy', 0.0)}</div>
         </div>
         <div class="card">
             <h3>VBA Macros & SDI</h3>
@@ -319,7 +390,7 @@ class ReportGenerator:
     </table>
 
     <h2>Synthesized YARA Detection Signature</h2>
-    <pre>{yara['rule_text']}</pre>
+    <pre>{safe_yara_rule}</pre>
 
     <h2>Document Streams & Entropy</h2>
     <table>
@@ -333,7 +404,7 @@ class ReportGenerator:
 
     <h2>Analysis Limitations & Caveats</h2>
     <ul>
-        {''.join(f'<li>{lim}</li>' for lim in verdict['limitations'])}
+        {limitations_items}
         <li>Static triage only. No live macro execution or process injection was performed.</li>
     </ul>
 </div>

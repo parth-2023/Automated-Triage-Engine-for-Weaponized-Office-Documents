@@ -35,9 +35,12 @@ Each finding is assigned one of four severity levels:
 - **CRITICAL (60+ pts)**: Fully reconstructed staged loader with auto-execution, memory allocation, and thread creation.
 
 ### Deduplication Rules:
-- If an indicator (e.g., `Chr()`) occurs multiple times in a module, each subsequent occurrence adds only a diminishing fraction:
-  $$\text{Contribution} = \text{Base} \times \left(1 + \min(n - 1, 5) \times 0.2\right)$$
-- Finding clusters under the same category cannot exceed the category cap.
+- If an indicator (e.g., `Chr_Obfuscation` or Win32 API) occurs multiple times, each subsequent occurrence adds only a diminishing fraction defined in `policies/risk_policy.yaml`:
+  - 1st occurrence: $1.0 \times \text{Base Weight}$ (100%)
+  - 2nd occurrence: $0.3 \times \text{Base Weight}$ (30%)
+  - 3rd and subsequent occurrences: $0.1 \times \text{Base Weight}$ (10%)
+- Indicator base weights are resolved from `base_weights` in `risk_policy.yaml`, with fallback to the finding severity weight (`INFO`=0, `LOW`=10, `MEDIUM`=20, `HIGH`=35, `CRITICAL`=50).
+- Finding clusters under the same category cannot exceed the configured category cap (`EXECUTION`=40, `INJECTION`=50, `OBFUSCATION`=35, `STOMPING`=45, `PAYLOAD`=50).
 
 ---
 
@@ -70,9 +73,10 @@ $$\text{Final Score} = \min(100, S_{\text{raw}})$$
 | **80 - 100** | **CRITICAL** | High-confidence weaponized document with correlated multi-stage execution indicators. |
 
 ### Special Operational Statuses:
+- **PARTIAL**: Advanced analysis stages (such as P-code disassembly or deobfuscation) could not be executed or were blocked by missing dependencies. The document is NEVER labelled cleanly as `LOW` or "Safe" when analysis is incomplete; if raw score <= 19, classification is reported as `PARTIAL` with security verdict `INCOMPLETE ANALYSIS — VERDICT UNVERIFIED`.
 - **INCONCLUSIVE**: File is encrypted, password-protected, or partially corrupt, preventing macro stream analysis.
 - **UNSUPPORTED FORMAT**: Document signature does not match supported OLE/OpenXML formats.
-- **ANALYSIS INCOMPLETE**: Resource limits exceeded or parser error encountered on a specific stream.
+- **INVALID_INPUT**: Input file is empty, oversized, or fundamentally unparseable as a compound document.
 
 ---
 
