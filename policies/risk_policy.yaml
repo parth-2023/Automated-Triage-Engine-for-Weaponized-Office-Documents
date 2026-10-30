@@ -1,0 +1,55 @@
+version: "1.0"
+policy_name: "Default Office Malware Triage Risk Policy"
+
+thresholds:
+  low_max: 19
+  medium_max: 49
+  high_max: 79
+  critical_min: 80
+
+category_caps:
+  EXECUTION: 40
+  INJECTION: 50
+  OBFUSCATION: 35
+  STOMPING: 45
+  PAYLOAD: 50
+
+base_weights:
+  # Triggers
+  auto_open: 20
+  document_open: 20
+  workbook_open: 20
+  auto_exec: 25
+  document_close: 15
+
+  # Injection / APIs
+  virtual_alloc: 30
+  virtual_alloc_ex: 35
+  rtl_move_memory: 25
+  write_process_memory: 35
+  create_thread: 30
+  create_remote_thread: 40
+  shell_execute: 20
+  win_exec: 20
+
+  # Obfuscation
+  chr_obfuscation: 15
+  str_reverse: 15
+  xor_transform: 20
+  high_entropy_stream: 15
+
+  # Stomping
+  stomping_discrepancy_low: 15
+  stomping_discrepancy_med: 25
+  stomping_discrepancy_high: 40
+
+  # Payload
+  extracted_payload: 30
+  shellcode_detected: 40
+  resolved_api_hash: 25
+  c2_network_indicator: 30
+
+correlation_bonuses:
+  staged_loader: 25
+  obfuscated_payload: 20
+  stomped_shellcode: 30
