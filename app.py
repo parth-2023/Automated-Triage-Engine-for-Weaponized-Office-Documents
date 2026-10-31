@@ -73,6 +73,29 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
     md5_val = html.escape(str(res.doc.hashes.get('md5', 'N/A')))
     sha1_val = html.escape(str(res.doc.hashes.get('sha1', 'N/A')))
 
+    is_sim = getattr(res, "is_simulation", False)
+    simulation_banner = ""
+    recommendation_pill = ""
+    if is_sim:
+        rec_val = html.escape(str(getattr(res, "recommendation", "IMMEDIATE ANALYST REVIEW")))
+        simulation_banner = f"""
+        <div style="background: #1e3a8a; color: #93c5fd; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; border: 2px solid #3b82f6;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <span style="background: #2563eb; color: #ffffff; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; letter-spacing: 0.05em;">PRESENTATION SIMULATION</span>
+                    <span style="color: #bfdbfe; font-size: 0.95rem; margin-left: 10px; font-weight: 600;">Target File Matched by SHA-256</span>
+                </div>
+                <div>
+                    <span style="background: #dc2626; color: white; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 0.85rem;">RECOMMENDATION: {rec_val}</span>
+                </div>
+            </div>
+            <p style="margin: 8px 0 0 0; color: #dbeafe; font-size: 0.9rem;">
+                <strong>Illustrative demonstration scenario active:</strong> The displayed security findings, threat levels, and behavioral patterns are simulated models for presentation purposes. Actual document metadata (hashes, size, format, entropy) has been preserved from the uploaded file.
+            </p>
+        </div>
+        """
+        recommendation_pill = f"""<span style="background: #7f1d1d; color: #fecaca; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; margin-left: 8px;">Rec: <strong>{rec_val}</strong></span>"""
+
     incomplete_alert = ""
     if res.analysis_status == "PARTIAL":
         incomplete_alert = """
@@ -83,6 +106,7 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
 
     overview_html = f"""
     <div style="background: #1e293b; padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px;">
+        {simulation_banner}
         {incomplete_alert}
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
@@ -93,6 +117,7 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
                 <div style="margin-top: 4px;">
                     <span style="background: #334155; color: #cbd5e1; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem;">Status: {safe_status}</span>
                     <span style="color: #94a3b8; font-size: 0.85rem; margin-left: 8px;">Verdict: <strong>{sec_verdict}</strong></span>
+                    {recommendation_pill}
                 </div>
             </div>
             <div style="text-align: right;">

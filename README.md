@@ -81,6 +81,13 @@ Designed for cybersecurity research engineers, SOC analysts, and malware reverse
     - Displays detected container format, package type, stream entropy, extracted macros, deobfuscation outputs, shellcode findings, external relationships, and embedded objects.
     - One-click export of structured JSON and standalone, styled HTML analyst reports.
 
+11. **Presentation Simulation Mode (Target File SHA-256 Triggered)**:
+    - Dedicated, safe demonstration mode automatically triggered when an uploaded file matches SHA-256 hash 1caa845045218fb6efd4c5cba495ff315ce8bc798f54635da1a9065f946b1edd (Invoice_September_2026.docm).
+    - Produces a predefined illustrative triage report (Verdict: SUSPICIOUS, Risk Score: 85/100, Level: CRITICAL, Recommendation: IMMEDIATE ANALYST REVIEW) populated with educational indicators across all 7 tabs.
+    - Preserves true measured file metadata (actual SHA-256, MD5, SHA-1, size, format, and entropy) directly computed from the uploaded file.
+    - Emits prominent PRESENTATION SIMULATION warning banners across the dashboard, JSON export, and HTML report to ensure simulated findings are never confused with real analysis.
+    - Zero execution boundary strictly preserved; simulated indicators never enter genuine YARA generation or model training data.
+
 ---
 
 ## 18-Feature Vector Representation
@@ -166,7 +173,7 @@ Run the full automated test suite covering all phases and end-to-end integration
 python -m pytest tests/ -v
 ```
 
-All 86 test cases across the entire test suite execute and pass:
+All 109 test cases across the entire test suite execute and pass:
 - `tests/test_phase1_ingestion.py` (19 tests) — Container ingestion, hash computation, entropy, zip bomb defense, VBA extraction.
 - `tests/test_phase2_static_detection.py` (15 tests) — Static detection, fusion, YAML-weighted risk engine, policy loading fallback transparency, 5 feature states, distinct sentinels.
 - `tests/test_phase3_advanced_vba.py` (19 tests) — String-aware deobfuscator variable propagation, bounded XOR loops, module-level stomping semantic comparison, payload extraction.

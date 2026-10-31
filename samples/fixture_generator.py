@@ -449,6 +449,22 @@ End Sub"""
         z.writestr("word/document.xml", "<xml></xml>")
     fixtures["zip_slip"] = slip_zip
 
+    # 15. Presentation Simulation Mode target fixture (exact SHA-256 target)
+    sim_path = SAMPLE_DIR / "Invoice_September_2026.docm"
+    if not sim_path.exists():
+        dl_path = Path.home() / "Downloads" / "Invoice_September_2026.docm"
+        if dl_path.exists():
+            import shutil
+            shutil.copy2(dl_path, sim_path)
+    if sim_path.exists():
+        fixtures["presentation_simulation_docm"] = sim_path
+
+    # 16. Different document with the exact same filename (to test non-activation)
+    diff_hash_path = SAMPLE_DIR / "different_hash" / "Invoice_September_2026.docm"
+    diff_hash_path.parent.mkdir(parents=True, exist_ok=True)
+    create_minimal_docx(diff_hash_path)
+    fixtures["same_filename_different_hash"] = diff_hash_path
+
     return fixtures
 
 

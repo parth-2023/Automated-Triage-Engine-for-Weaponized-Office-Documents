@@ -346,6 +346,24 @@ class ReportGenerator:
             </div>
             """
 
+        is_simulation = bool(report_data.get("simulation_mode") or overview.get("simulation_mode"))
+        target_file_hash = report_data.get("target_file_hash", "")
+        recommendation = report_data.get("recommendation", overview.get("recommendation", ""))
+
+        simulation_banner = ""
+        if is_simulation:
+            simulation_banner = f"""
+            <div style="background: #1e3a8a; color: #93c5fd; padding: 16px 22px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #3b82f6;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; color: #ffffff; letter-spacing: 0.05em;">[PRESENTATION SIMULATION MODE ACTIVE]</h3>
+                    <span style="background: #dc2626; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold; font-size: 0.85rem;">RECOMMENDATION: {html.escape(str(recommendation or 'IMMEDIATE ANALYST REVIEW'))}</span>
+                </div>
+                <p style="margin: 8px 0 0 0; color: #dbeafe; font-size: 0.95rem;">
+                    Target presentation hash matched (<code>{html.escape(str(target_file_hash))}</code>). All reported security findings, threat scores, and indicators are simulated demonstration models. Actual document metadata is preserved.
+                </p>
+            </div>
+            """
+
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -374,6 +392,7 @@ class ReportGenerator:
 </head>
 <body>
 <div class="container">
+    {simulation_banner}
     {incomplete_banner}
     <div class="header">
         <div style="display: flex; justify-content: space-between; align-items: center;">

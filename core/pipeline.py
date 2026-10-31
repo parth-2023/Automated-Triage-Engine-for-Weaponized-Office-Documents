@@ -29,6 +29,7 @@ from core.risk_engine import RiskEngine, RiskAssessmentVerdict
 from core.feature_extractor import FeatureExtractor, DocumentFeatureVector, FeatureState
 from core.yara_synthesizer import YaraRuleSynthesizer, SynthesizedYaraRule
 from core.report_generator import ReportGenerator
+from core.presentation_mode import is_presentation_simulation_target, generate_presentation_simulation
 
 
 @dataclass
@@ -53,6 +54,8 @@ class TriagePipelineResult:
     analysis_limitations: List[str] = None   # populated post-init
     html_report_path: Optional[Path] = None
     json_report_path: Optional[Path] = None
+    is_simulation: bool = False
+    recommendation: str = "NORMAL"
 
     def __post_init__(self):
         if self.analysis_limitations is None:
@@ -75,6 +78,10 @@ class TriagePipeline:
         with IngestionManager() as mgr:
             # 1. Ingestion
             doc = mgr.ingest_file(file_path_or_bytes, original_name=filename)
+
+            # Check for Presentation Simulation Mode target file (matched strictly by SHA-256)
+            if is_presentation_simulation_target(doc.hashes.get("sha256", "")):
+                return generate_presentation_simulation(doc, self.output_dir)
 
             # If invalid or corrupt signature, short-circuit safely
             if not doc.is_valid:
