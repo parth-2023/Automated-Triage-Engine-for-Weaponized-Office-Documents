@@ -158,9 +158,12 @@ class TestPresentationSimulationMode:
         assert f_dict["f15_has_thread_create_api"] == 1
         assert f_dict["f18_has_c2_network_indicator"] == 1
 
-        # 7. YARA Rule
+        # 7. YARA Rule (verified non-genuine demonstration rule)
         assert "presentation_simulation_invoice_indicator" in res.yara_rule.rule_text
         assert "VirtualAlloc" in res.yara_rule.rule_text
+        assert "NON-GENUINE DEMONSTRATION RULE" in res.yara_rule.rule_text
+        assert 'is_genuine_rule = "false"' in res.yara_rule.rule_text
+        assert res.yara_rule.status == "SIMULATION_NON_GENUINE"
         assert res.yara_rule.is_valid_syntax is True
 
     def test_dashboard_callback_simulation_integration(self, fixtures):

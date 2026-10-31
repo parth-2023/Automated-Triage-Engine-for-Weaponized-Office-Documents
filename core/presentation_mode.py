@@ -446,16 +446,24 @@ End Sub
         not_applicable_features=[]
     )
 
-    # 12. Illustrative YARA Signature
-    sim_yara_text = f"""rule presentation_simulation_invoice_indicator
+    # 12. Illustrative YARA Signature (Non-genuine demonstration model)
+    sim_yara_text = f"""/*
+ * PRESENTATION SIMULATION MODE — NON-GENUINE DEMONSTRATION RULE
+ *
+ * Notice: YARA detection rule generation is strictly suppressed for simulated findings
+ * to prevent generating unverified or false-positive production signatures.
+ * This rule is an illustrative model only and is NOT a genuine detection rule.
+ */
+rule presentation_simulation_invoice_indicator
 {{
     meta:
-        description = "Illustrative detection signature for Presentation Simulation Mode"
-        author = "Automated Office Triage Engine (Presentation Simulation)"
+        description = "Illustrative detection signature for Presentation Simulation Mode (Non-genuine)"
+        author = "Automated Office Triage Engine (Presentation Simulation - Not a genuine rule)"
         date = "2026-10-31"
         sha256 = "{TARGET_SIMULATION_SHA256}"
         original_file = "{doc.safe_filename}"
         simulation_mode = "true"
+        is_genuine_rule = "false"
         reference = "Presentation Simulation Profile"
 
     strings:
@@ -473,6 +481,7 @@ End Sub
         rule_name="presentation_simulation_invoice_indicator",
         rule_text=sim_yara_text,
         is_valid_syntax=True,
+        status="SIMULATION_NON_GENUINE",
         matching_strings=["AutoOpen", "VirtualAlloc", "WriteProcessMemory", "CreateThread", "c2-finance-update.org"],
         source_evidence_count=5
     )
