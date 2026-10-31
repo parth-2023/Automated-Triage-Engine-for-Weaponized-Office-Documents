@@ -6,12 +6,20 @@ and OpenXML ZIP containers with strict Zip-slip and zip-bomb protections.
 
 import io
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 import olefile
 
 from core.hashing import shannon_entropy, calculate_hashes
+from core.ingestion import (
+    ALL_OLE_EXTENSIONS,
+    ALL_OPENXML_EXTENSIONS,
+    WORD_EXTENSIONS,
+    EXCEL_EXTENSIONS,
+    PPT_EXTENSIONS,
+)
 
 
 MAX_ZIP_ENTRIES = 10000
@@ -44,6 +52,9 @@ class StructuralInspectionResult:
     mean_stream_entropy: float = 0.0
     suspicious_entries: List[str] = field(default_factory=list)
     anomalies: List[str] = field(default_factory=list)
+    package_type: str = "Unknown"  # "Word", "Excel", "PowerPoint", "Generic"
+    external_relationships: List[Dict[str, Any]] = field(default_factory=list)
+    embedded_objects: List[Dict[str, Any]] = field(default_factory=list)
     is_corrupt: bool = False
     error: Optional[str] = None
 
@@ -61,6 +72,7 @@ class DocumentInspector:
         has_vba = False
         vba_loc = None
         anomalies = []
+        pkg_type = "OLE Generic"
 
         try:
             if isinstance(file_path_or_bytes, bytes):
@@ -76,6 +88,25 @@ class DocumentInspector:
                 ole = olefile.OleFileIO(str(file_path_or_bytes))
 
             with ole:
+                if ole.exists("WordDocument"):
+                    pkg_type = "Word"
+                elif ole.exists("Workbook") or ole.exists("Book"):
+                    pkg_type = "Excel"
+                elif ole.exists("PowerPoint Document") or ole.exists("Current User"):
+                    pkg_type = "PowerPoint"
+
+                # Check extension consistency if file_path is given
+                if not isinstance(file_path_or_bytes, bytes):
+                    ext = Path(file_path_or_bytes).suffix.lower()
+                    if ext in ALL_OPENXML_EXTENSIONS:
+                        anomalies.append(f"Extension mismatch: file extension is OpenXML '{ext}' but actual file is an OLE Compound Document (renamed file).")
+                    elif pkg_type == "Word" and ext in (EXCEL_EXTENSIONS | PPT_EXTENSIONS):
+                        anomalies.append(f"Extension mismatch: file has extension '{ext}' but internal OLE structure contains WordDocument.")
+                    elif pkg_type == "Excel" and ext in (WORD_EXTENSIONS | PPT_EXTENSIONS):
+                        anomalies.append(f"Extension mismatch: file has extension '{ext}' but internal OLE structure contains Workbook.")
+                    elif pkg_type == "PowerPoint" and ext in (WORD_EXTENSIONS | EXCEL_EXTENSIONS):
+                        anomalies.append(f"Extension mismatch: file has extension '{ext}' but internal OLE structure contains PowerPoint Document.")
+
                 dir_entries = ole.listdir(streams=True, storages=False)
                 for entry in dir_entries:
                     stream_path = "/".join(entry)
@@ -129,13 +160,15 @@ class DocumentInspector:
             max_stream_entropy=max_ent,
             mean_stream_entropy=mean_ent,
             anomalies=anomalies,
+            package_type=pkg_type,
             is_corrupt=False
         )
 
     @classmethod
     def inspect_openxml_file(cls, file_path: Path) -> StructuralInspectionResult:
         """
-        Inspect OpenXML ZIP container with Zip-slip / zip-bomb guards.
+        Inspect OpenXML ZIP container with Zip-slip / zip-bomb guards,
+        extracting external relationships, embedded objects, and validating package consistency.
         """
         streams_info: List[StreamInfo] = []
         has_vba = False
@@ -143,17 +176,41 @@ class DocumentInspector:
         suspicious_entries = []
         anomalies = []
         vba_bin_bytes: Optional[bytes] = None
+        external_relationships: List[Dict[str, Any]] = []
+        embedded_objects: List[Dict[str, Any]] = []
+        pkg_type = "OpenXML Package (Generic)"
 
         dangerous_extensions = {".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".cpl", ".scr"}
 
         try:
             with zipfile.ZipFile(str(file_path), "r") as z:
                 infolist = z.infolist()
+                names_lower = [info.filename.lower() for info in infolist]
+
+                # Determine package type
+                if any(n.startswith("word/") for n in names_lower):
+                    pkg_type = "Word"
+                elif any(n.startswith("xl/") for n in names_lower):
+                    pkg_type = "Excel"
+                elif any(n.startswith("ppt/") for n in names_lower):
+                    pkg_type = "PowerPoint"
+
+                # Check extension consistency
+                ext = Path(file_path).suffix.lower()
+                if ext in ALL_OLE_EXTENSIONS:
+                    anomalies.append(f"Extension mismatch: file extension is legacy OLE '{ext}' but internal package is an OpenXML ZIP container (renamed file).")
+                elif pkg_type == "Word" and ext in (EXCEL_EXTENSIONS | PPT_EXTENSIONS):
+                    anomalies.append(f"Extension mismatch: file extension is '{ext}' but internal package structure corresponds to Microsoft Word.")
+                elif pkg_type == "Excel" and ext in (WORD_EXTENSIONS | PPT_EXTENSIONS):
+                    anomalies.append(f"Extension mismatch: file extension is '{ext}' but internal package structure corresponds to Microsoft Excel.")
+                elif pkg_type == "PowerPoint" and ext in (WORD_EXTENSIONS | EXCEL_EXTENSIONS):
+                    anomalies.append(f"Extension mismatch: file extension is '{ext}' but internal package structure corresponds to Microsoft PowerPoint.")
 
                 if len(infolist) > MAX_ZIP_ENTRIES:
                     return StructuralInspectionResult(
                         container_type="OpenXML",
                         stream_count=len(infolist),
+                        package_type=pkg_type,
                         is_corrupt=True,
                         error=f"Zip entry count ({len(infolist)}) exceeds safety threshold ({MAX_ZIP_ENTRIES}). Potential DoS."
                     )
@@ -172,6 +229,7 @@ class DocumentInspector:
                         return StructuralInspectionResult(
                             container_type="OpenXML",
                             stream_count=len(infolist),
+                            package_type=pkg_type,
                             is_corrupt=True,
                             error=f"Zip entry '{filename}' size ({info.file_size} bytes) exceeds limit ({MAX_UNCOMPRESSED_ENTRY_SIZE})."
                         )
@@ -181,6 +239,7 @@ class DocumentInspector:
                         return StructuralInspectionResult(
                             container_type="OpenXML",
                             stream_count=len(infolist),
+                            package_type=pkg_type,
                             is_corrupt=True,
                             error=f"Total uncompressed ZIP size exceeds limit ({MAX_TOTAL_UNCOMPRESSED_SIZE}). Potential Zip Bomb."
                         )
@@ -202,11 +261,71 @@ class DocumentInspector:
                         ent = shannon_entropy(content)
                         h = calculate_hashes(content)["sha256"]
 
+                        # Check if VBA project
                         is_vba = "vbaProject.bin" in filename or "vba" in filename.lower()
                         if "vbaProject.bin" in filename:
                             has_vba = True
                             vba_loc = filename
                             vba_bin_bytes = content
+
+                        # Inspect relationships (.rels)
+                        if filename.lower().endswith(".rels"):
+                            try:
+                                root = ET.fromstring(content)
+                                for elem in root.iter():
+                                    if elem.tag.endswith("Relationship"):
+                                        target = elem.attrib.get("Target", "")
+                                        target_mode = elem.attrib.get("TargetMode", "")
+                                        rel_type = elem.attrib.get("Type", "")
+                                        is_external = target_mode.lower() == "external" or any(target.lower().startswith(p) for p in ["http://", "https://", "ftp://", "\\\\", "file://", "ms-msdt:", "search-ms:", "mhtml:"])
+                                        if is_external:
+                                            is_template = ("attachedtemplate" in rel_type.lower()) or any(target.lower().endswith(x) for x in [".dot", ".dotm", ".docm", ".dotx"])
+                                            is_protocol = any(target.lower().startswith(p) for p in ["ms-msdt:", "search-ms:", "file:", "\\\\", "mhtml:"])
+                                            if is_template:
+                                                anomalies.append(f"Remote template injection detected in '{filename}': target='{target}'")
+                                            elif is_protocol:
+                                                anomalies.append(f"Suspicious external protocol handler detected in '{filename}': target='{target}'")
+                                            else:
+                                                anomalies.append(f"External relationship detected in '{filename}': target='{target}'")
+
+                                            external_relationships.append({
+                                                "source_part": filename,
+                                                "target": target,
+                                                "type": rel_type,
+                                                "target_mode": target_mode,
+                                                "is_template_injection": is_template,
+                                                "is_suspicious_protocol": is_protocol,
+                                                "is_suspicious": is_template or is_protocol or target_mode.lower() == "external",
+                                            })
+                            except Exception:
+                                pass
+
+                        # Inspect embedded objects / OLE objects / binary packages
+                        lower_fn = filename.lower()
+                        is_embedded = (
+                            "embeddings/" in lower_fn or
+                            (lower_fn.endswith(".bin") and "vbaproject.bin" not in lower_fn) or
+                            lower_fn.endswith(".ole") or
+                            "oleobject" in lower_fn
+                        )
+                        if is_embedded:
+                            is_ole = content.startswith(b"\xD0\xCF\x11\xE0")
+                            embedded_objects.append({
+                                "storage_path": filename,
+                                "size_bytes": info.file_size,
+                                "entropy": ent,
+                                "sha256": h,
+                                "is_ole": is_ole
+                            })
+                            anomalies.append(f"Embedded object detected in package ({'OLE Compound Document' if is_ole else 'Binary Object'}): {filename} ({info.file_size} bytes)")
+                            if is_ole:
+                                try:
+                                    inner_ole = cls.inspect_ole_file(content)
+                                    for s in inner_ole.streams:
+                                        if "ole10native" in s.name.lower():
+                                            anomalies.append(f"Embedded OLE object contains Ole10Native package stream: {filename}!{s.storage_path}")
+                                except Exception:
+                                    pass
 
                         susp_ent = ent > 7.0
                         if susp_ent:
@@ -228,6 +347,7 @@ class DocumentInspector:
             return StructuralInspectionResult(
                 container_type="OpenXML",
                 stream_count=0,
+                package_type=pkg_type,
                 is_corrupt=True,
                 error=f"Malformed or corrupted OpenXML ZIP archive: {str(bz)}"
             )
@@ -235,6 +355,7 @@ class DocumentInspector:
             return StructuralInspectionResult(
                 container_type="OpenXML",
                 stream_count=0,
+                package_type=pkg_type,
                 is_corrupt=True,
                 error=f"Unexpected error during OpenXML inspection: {str(e)}"
             )
@@ -251,7 +372,7 @@ class DocumentInspector:
                             entropy=s.entropy,
                             is_vba_related=True,
                             is_suspicious_entropy=s.is_suspicious_entropy,
-                            storage_path=f"word/vbaProject.bin!{s.storage_path}",
+                            storage_path=f"vbaProject.bin!{s.storage_path}",
                             sha256=s.sha256
                         ))
             except Exception as e:
@@ -271,6 +392,9 @@ class DocumentInspector:
             mean_stream_entropy=mean_ent,
             suspicious_entries=suspicious_entries,
             anomalies=anomalies,
+            package_type=pkg_type,
+            external_relationships=external_relationships,
+            embedded_objects=embedded_objects,
             is_corrupt=False
         )
 

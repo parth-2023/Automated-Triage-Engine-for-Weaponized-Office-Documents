@@ -48,6 +48,11 @@ base_weights:
   shellcode_detected: 40
   resolved_api_hash: 25
   c2_network_indicator: 30
+  remote_template_injection: 35
+  embedded_ole_object: 25
+  suspicious_protocol_handler: 30
+  external_relationship: 15
+  extension_mismatch: 15
 
 correlation_bonuses:
   staged_loader: 25

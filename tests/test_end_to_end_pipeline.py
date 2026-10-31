@@ -92,6 +92,66 @@ class TestEndToEndPipeline:
         assert res.verdict.classification == "PARTIAL"
         assert "INCOMPLETE ANALYSIS" in res.verdict.security_verdict
 
+    def test_docx_clean_pipeline(self, fixtures):
+        pipeline = TriagePipeline()
+        path = fixtures["valid_docx"]
+        res = pipeline.analyze_file(str(path))
+
+        assert res.doc.is_valid is True
+        assert res.doc.package_type == "Word"
+        assert res.structure.package_type == "Word"
+        assert res.vba.has_macros is False
+        assert res.verdict.classification == "LOW"
+        assert res.analysis_status == "COMPLETED"
+        # Macro-specific features should be NOT_APPLICABLE, not FAILED
+        assert "f4_stomping_discrepancy" in res.features.not_applicable_features
+        assert "f6_pcode_token_count" in res.features.not_applicable_features
+
+    def test_xlsx_clean_pipeline(self, fixtures):
+        pipeline = TriagePipeline()
+        path = fixtures["valid_xlsx"]
+        res = pipeline.analyze_file(str(path))
+
+        assert res.doc.is_valid is True
+        assert res.doc.package_type == "Excel"
+        assert res.verdict.classification == "LOW"
+        assert res.analysis_status == "COMPLETED"
+
+    def test_pptx_clean_pipeline(self, fixtures):
+        pipeline = TriagePipeline()
+        path = fixtures["valid_pptx"]
+        res = pipeline.analyze_file(str(path))
+
+        assert res.doc.is_valid is True
+        assert res.doc.package_type == "PowerPoint"
+        assert res.verdict.classification == "LOW"
+        assert res.analysis_status == "COMPLETED"
+
+    def test_remote_template_injection_pipeline(self, fixtures):
+        pipeline = TriagePipeline()
+        path = fixtures["docx_remote_template"]
+        res = pipeline.analyze_file(str(path))
+
+        assert res.doc.is_valid is True
+        assert any(f.indicator_name == "RemoteTemplateInjection" for f in res.fused.deduplicated_findings)
+        assert res.verdict.normalized_score > 20
+        assert res.verdict.classification in ["HIGH", "MEDIUM"]
+
+    def test_embedded_ole_pipeline(self, fixtures):
+        pipeline = TriagePipeline()
+        path = fixtures["docx_embedded_ole"]
+        res = pipeline.analyze_file(str(path))
+
+        assert res.doc.is_valid is True
+        assert any(f.indicator_name == "EmbeddedOleObject" for f in res.fused.deduplicated_findings)
+
+    def test_mismatched_extension_pipeline(self, fixtures):
+        pipeline = TriagePipeline()
+        path = fixtures["docx_mismatched_ole"]
+        res = pipeline.analyze_file(str(path))
+
+        assert any(f.indicator_name == "ExtensionMismatch" for f in res.fused.deduplicated_findings)
+
 
 class TestDashboardCallbackAndSecurity:
     def test_analyze_document_none_input(self):
@@ -110,6 +170,12 @@ class TestDashboardCallbackAndSecurity:
         # Reports
         assert outputs[11] is not None and Path(outputs[11]).exists()
         assert outputs[12] is not None and Path(outputs[12]).exists()
+
+    def test_analyze_document_unsupported_format(self, fixtures):
+        path = str(fixtures["unsupported_file"])
+        outputs = analyze_document(path)
+        assert len(outputs) == 13
+        assert "Unsupported File Format" in outputs[0]
 
     def test_html_injection_prevention(self, fixtures):
         # Call pipeline with an untrusted malicious filename containing HTML tags

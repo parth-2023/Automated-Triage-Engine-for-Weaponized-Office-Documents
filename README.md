@@ -1,6 +1,11 @@
 # Automated Triage Engine for Weaponized Office Documents
 
-A modular, deterministic, explainable static analysis and reverse engineering framework for analyzing potentially weaponized Microsoft Office documents (`.doc`, `.docm`, `.xls`, `.xlsm`) without live macro execution.
+A modular, deterministic, explainable static analysis and reverse engineering framework for analyzing potentially weaponized Microsoft Office documents without live macro execution.
+
+Supports 19 Microsoft Office formats across Word, Excel, and PowerPoint:
+- **Word:** `.doc`, `.docx`, `.docm`, `.dot`, `.dotx`, `.dotm`
+- **Excel:** `.xls`, `.xlsx`, `.xlsm`, `.xlt`, `.xltx`, `.xltm`
+- **PowerPoint:** `.ppt`, `.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm`
 
 Designed for cybersecurity research engineers, SOC analysts, and malware reverse engineers.
 
@@ -8,9 +13,12 @@ Designed for cybersecurity research engineers, SOC analysts, and malware reverse
 
 ## Key Features
 
-1. **Multi-Format Ingestion & Structural Inspection**:
-   - Ingests legacy OLE Compound Documents (`.doc`, `.xls`) and modern OpenXML ZIP containers (`.docm`, `.xlsm`).
-   - Magic byte verification (`D0 CF 11 E0` for OLE, `50 4B 03 04` for OpenXML).
+1. **Multi-Format Ingestion & Structural Inspection (Word, Excel, PowerPoint)**:
+   - Ingests legacy OLE Compound Documents (`.doc`, `.dot`, `.xls`, `.xlt`, `.ppt`) and modern OpenXML ZIP containers (`.docx`, `.docm`, `.xlsx`, `.xlsm`, `.pptx`, `.pptm`, etc.).
+   - Magic byte verification (`D0 CF 11 E0` for OLE, `50 4B 03 04` for OpenXML) and internal structure analysis (`[Content_Types].xml`, `word/`, `xl/`, `ppt/`, OLE streams `WordDocument`, `Workbook`, `PowerPoint Document`).
+   - Validates consistency between file extensions and internal package structures, detecting extension mismatches and disguised/renamed files.
+   - Comprehensive OpenXML relationship analysis (`*.rels`) detecting external relationships, remote template injection (`attachedTemplate`), and suspicious protocol handlers (`ms-msdt:`, `search-ms:`, `file:`, UNC shares).
+   - Safe inspection of embedded objects, packages, and embedded OLE streams (`word/embeddings/`, `oleObject*.bin`, `Ole10Native`).
    - In-depth defense against Zip-slip / directory traversal and Zip bomb decompression attacks.
    - Shannon entropy computed per OLE stream and ZIP entry with high-entropy alerts (> 7.0).
 
@@ -63,12 +71,14 @@ Designed for cybersecurity research engineers, SOC analysts, and malware reverse
 
 9. **YARA Detection Signature Synthesis & Validation**:
    - Automatically generates YARA rules matching reconstructed strings, API declarations, and binary signatures.
-   - Implements scoped condition formulation with container magic bytes (`uint32(0) == 0xE011CFD0` for OLE `.doc`, `uint16(0) == 0x4B50` for OpenXML `.docm`/ZIP) to avoid false positives across container types.
+   - Implements scoped condition formulation with container magic bytes (`uint32(0) == 0xE011CFD0` for OLE documents, `uint16(0) == 0x4B50` for OpenXML packages) across all 19 supported extensions to avoid false positives across container types.
    - Strict metadata escaping and hash validation preventing rule syntax corruption from complex filenames.
    - Compiles and validates rules using `yara-python`; never marks a rule as valid unless compilation succeeds (reporting `GENERATED_NOT_VALIDATED` if the compiler is unavailable).
 
 10. **Interactive Gradio Dashboard & Exportable Reports**:
-    - Modern analyst-friendly Gradio web dashboard (`app.py`) with strict HTML escaping against script and tag injection.
+    - Modern analyst-friendly Gradio web dashboard (`app.py`) with support for uploading all 19 Word, Excel, and PowerPoint extensions.
+    - Strict HTML escaping against script and tag injection.
+    - Displays detected container format, package type, stream entropy, extracted macros, deobfuscation outputs, shellcode findings, external relationships, and embedded objects.
     - One-click export of structured JSON and standalone, styled HTML analyst reports.
 
 ---

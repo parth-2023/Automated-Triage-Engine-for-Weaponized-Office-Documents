@@ -112,10 +112,11 @@ class DocumentFeatureVector:
     f17_resolved_api_hash_count: FeatureEntry
     f18_has_c2_network_indicator: FeatureEntry
 
-    # Track whether any advanced analysis was unavailable / failed
+    # Track whether any advanced analysis was unavailable / failed / not applicable
     analysis_complete: bool = True
     unavailable_features: List[str] = field(default_factory=list)
     failed_features: List[str] = field(default_factory=list)
+    not_applicable_features: List[str] = field(default_factory=list)
 
     def _feature_list(self) -> List[FeatureEntry]:
         return [
@@ -318,10 +319,11 @@ class FeatureExtractor:
         else:
             f17 = _unavailable("f17_resolved_api_hash_count", api_hash_note or "Shellcode analysis not performed or Capstone unavailable.")
 
-        # Collect unavailable/failed features
+        # Collect unavailable/failed/not_applicable features
         all_features_preview = [f4, f6, f16, f17]
         unavailable = [f.name for f in all_features_preview if f.state == FeatureState.UNAVAILABLE]
         failed = [f.name for f in all_features_preview if f.state == FeatureState.FAILED]
+        not_applicable = [f.name for f in all_features_preview if f.state == FeatureState.NOT_APPLICABLE]
         is_complete = len(unavailable) == 0 and len(failed) == 0
 
         return DocumentFeatureVector(
@@ -346,4 +348,5 @@ class FeatureExtractor:
             analysis_complete=is_complete,
             unavailable_features=unavailable,
             failed_features=failed,
+            not_applicable_features=not_applicable,
         )

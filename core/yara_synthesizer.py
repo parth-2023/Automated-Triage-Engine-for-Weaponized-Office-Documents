@@ -179,10 +179,16 @@ class YaraRuleSynthesizer:
         # 5. Office container specificity: scope condition with container magic bytes
         det_format = (doc.detected_format or "").upper()
         ext = (doc.extension or "").lower()
+        ole_exts = {".doc", ".dot", ".xls", ".xlt", ".ppt"}
+        openxml_exts = {
+            ".docx", ".docm", ".dotx", ".dotm",
+            ".xlsx", ".xlsm", ".xltx", ".xltm",
+            ".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm"
+        }
         container_magic = None
-        if det_format == "OLE" or ext in (".doc", ".xls", ".ppt"):
+        if det_format == "OLE" or ext in ole_exts:
             container_magic = "uint32(0) == 0xE011CFD0"
-        elif det_format in ("OPENXML", "ZIP") or ext in (".docm", ".xlsm", ".docx", ".xlsx", ".pptm", ".pptx"):
+        elif det_format in ("OPENXML", "ZIP") or ext in openxml_exts:
             container_magic = "uint16(0) == 0x4B50"
 
         if container_magic:

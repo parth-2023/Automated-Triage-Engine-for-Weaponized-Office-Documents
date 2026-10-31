@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Tuple, Any
 
 from core.pipeline import TriagePipeline, TriagePipelineResult
+from core.ingestion import SUPPORTED_EXTENSIONS, WORD_EXTENSIONS, EXCEL_EXTENSIONS, PPT_EXTENSIONS
 
 
 pipeline = TriagePipeline()
@@ -22,12 +23,26 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
     """
     if file_obj is None:
         return (
-            "### Please upload a valid Office document (.doc, .docm, .xls, .xlsm) to begin triage.",
+            "### Please upload a valid Office document (.doc, .docx, .xls, .xlsx, .ppt, .pptx, etc.) to begin triage.",
             [], [], "", [], [], [], [], [], [], "", None, None
         )
 
     file_path = file_obj.name if hasattr(file_obj, "name") else str(file_obj)
     original_name = Path(file_path).name
+
+    # Validate file extension against supported formats
+    ext = Path(original_name).suffix.lower()
+    if ext and ext not in SUPPORTED_EXTENSIONS:
+        return (
+            f"""<div style="background: #7f1d1d; color: #fecaca; padding: 14px 18px; border-radius: 8px; border: 1px solid #dc2626;">
+                <strong>Unsupported File Format:</strong> <code>{html.escape(ext)}</code> is not a supported Microsoft Office format.<br><br>
+                <strong>Supported formats:</strong><br>
+                • Word: {', '.join(sorted(WORD_EXTENSIONS))}<br>
+                • Excel: {', '.join(sorted(EXCEL_EXTENSIONS))}<br>
+                • PowerPoint: {', '.join(sorted(PPT_EXTENSIONS))}
+            </div>""",
+            [], [], "", [], [], [], [], [], [], "", None, None
+        )
 
     # Run complete analysis pipeline
     res: TriagePipelineResult = pipeline.analyze_file(file_path, filename=original_name)
@@ -48,6 +63,7 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
 
     safe_orig_name = html.escape(str(res.doc.original_filename or "Unknown"))
     safe_format = html.escape(str(res.doc.detected_format or "Unknown"))
+    safe_pkg = html.escape(str(getattr(res.doc, "package_type", "Unknown")))
     safe_classification = html.escape(str(verdict.classification or "Unknown"))
     safe_explanation = html.escape(str(verdict.explanation or ""))
     safe_status = html.escape(str(res.analysis_status or "COMPLETED"))
@@ -72,7 +88,7 @@ def analyze_document(file_obj) -> Tuple[Any, ...]:
             <div>
                 <h2 style="margin: 0; color: #f8fafc;">Sample: {safe_orig_name}</h2>
                 <span style="color: #94a3b8; font-size: 0.9rem;">
-                    Format: {safe_format} | Size: {res.doc.file_size_bytes} bytes | Entropy: {res.doc.file_entropy}
+                    Format: {safe_format} ({safe_pkg}) | Size: {res.doc.file_size_bytes} bytes | Entropy: {res.doc.file_entropy}
                 </span>
                 <div style="margin-top: 4px;">
                     <span style="background: #334155; color: #cbd5e1; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem;">Status: {safe_status}</span>
@@ -179,11 +195,19 @@ with gr.Blocks(title="Office Document Malware Triage Engine") as demo:
     gr.Markdown("""
     # Automated Triage Engine for Weaponized Office Documents
     ### Static Reverse Engineering, VBA Stomping, Deobfuscation, Shellcode & Risk Triage
-    *Upload Microsoft Office documents (`.doc`, `.docm`, `.xls`, `.xlsm`) for instant safe static analysis.*
+    *Upload Microsoft Office documents for instant safe static analysis.*
+
+    **Supported Formats (19 extensions):**
+    - **Word:** `.doc`, `.docx`, `.docm`, `.dot`, `.dotx`, `.dotm`
+    - **Excel:** `.xls`, `.xlsx`, `.xlsm`, `.xlt`, `.xltx`, `.xltm`
+    - **PowerPoint:** `.ppt`, `.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm`
     """)
 
     with gr.Row():
-        file_input = gr.File(label="Upload Document (.doc, .docm, .xls, .xlsm)", file_types=[".doc", ".docm", ".xls", ".xlsm"])
+        file_input = gr.File(
+            label="Upload Document (Word, Excel, PowerPoint: .doc, .docx, .xls, .xlsx, .ppt, .pptx, etc.)",
+            file_types=sorted(list(SUPPORTED_EXTENSIONS))
+        )
 
     analyze_btn = gr.Button("Analyze Document", variant="primary", size="lg")
 

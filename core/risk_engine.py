@@ -77,7 +77,9 @@ DEFAULT_POLICY = {
         "create_thread": 30, "create_remote_thread": 40, "shell_execute": 20, "win_exec": 20,
         "chr_obfuscation": 15, "str_reverse": 15, "xor_transform": 20, "high_entropy_stream": 15,
         "stomping_discrepancy_low": 15, "stomping_discrepancy_med": 25, "stomping_discrepancy_high": 40,
-        "extracted_payload": 30, "shellcode_detected": 40, "resolved_api_hash": 25, "c2_network_indicator": 30
+        "extracted_payload": 30, "shellcode_detected": 40, "resolved_api_hash": 25, "c2_network_indicator": 30,
+        "remote_template_injection": 35, "embedded_ole_object": 25, "suspicious_protocol_handler": 30,
+        "external_relationship": 15, "extension_mismatch": 15
     },
     "correlation_bonuses": {
         "staged_loader": 25, "obfuscated_payload": 20, "stomped_shellcode": 30
@@ -170,6 +172,16 @@ class RiskEngine:
             "stomping_discrepancy_low": "stomping_discrepancy_low",
             "stomping_discrepancy_med": "stomping_discrepancy_med",
             "stomping_discrepancy_high": "stomping_discrepancy_high",
+            "remotetemplateinjection": "remote_template_injection",
+            "remote_template_injection": "remote_template_injection",
+            "embeddedoleobject": "embedded_ole_object",
+            "embedded_ole_object": "embedded_ole_object",
+            "suspiciousprotocolhandler": "suspicious_protocol_handler",
+            "suspicious_protocol_handler": "suspicious_protocol_handler",
+            "externalrelationship": "external_relationship",
+            "external_relationship": "external_relationship",
+            "extensionmismatch": "extension_mismatch",
+            "extension_mismatch": "extension_mismatch",
         }
         mapped_key = mapping.get(norm, norm)
         if mapped_key in base_weights:

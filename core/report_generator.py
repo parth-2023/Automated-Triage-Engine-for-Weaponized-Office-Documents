@@ -70,6 +70,7 @@ class ReportGenerator:
                 "hashes": doc.hashes,
                 "file_entropy": doc.file_entropy,
                 "detected_format": doc.detected_format,
+                "package_type": getattr(doc, "package_type", "Unknown"),
                 "extension": doc.extension,
                 "is_valid": doc.is_valid,
                 "validation_notes": doc.validation_notes,
@@ -77,12 +78,15 @@ class ReportGenerator:
             "document_metadata": metadata,
             "structural_analysis": {
                 "container_type": structure.container_type,
+                "package_type": structure.package_type,
                 "stream_count": structure.stream_count,
                 "has_vba_project": structure.has_vba_project,
                 "vba_project_location": structure.vba_project_location,
                 "max_stream_entropy": structure.max_stream_entropy,
                 "mean_stream_entropy": structure.mean_stream_entropy,
                 "anomalies": structure.anomalies,
+                "external_relationships": structure.external_relationships,
+                "embedded_objects": structure.embedded_objects,
                 "streams": [
                     {
                         "name": s.name,
@@ -296,12 +300,43 @@ class ReportGenerator:
         safe_original_fn = html.escape(str(ident.get("original_filename", "unknown")))
         safe_fn = html.escape(str(ident.get("safe_filename", "unknown")))
         safe_fmt = html.escape(str(ident.get("detected_format", "unknown")))
+        safe_pkg = html.escape(str(ident.get("package_type", "Unknown")))
         safe_explanation = html.escape(str(verdict.get("explanation", "")))
         safe_classification = html.escape(str(classification))
         safe_yara_rule = html.escape(str(yara.get("rule_text", "")))
         sec_verdict = html.escape(str(overview.get("security_verdict", safe_classification)))
 
         limitations_items = "".join(f"<li>{html.escape(str(lim))}</li>" for lim in verdict.get("limitations", []))
+
+        ext_rels = struct.get("external_relationships", [])
+        ext_rels_rows = ""
+        for r in ext_rels:
+            r_tgt = html.escape(str(r.get("target", "")))
+            r_type = html.escape(str(r.get("type", "")))
+            r_susp = "Yes" if r.get("is_suspicious") else "No"
+            r_part = html.escape(str(r.get("part", "")))
+            ext_rels_rows += f"""
+            <tr>
+                <td><code>{r_tgt}</code></td>
+                <td>{r_type}</td>
+                <td>{r_part}</td>
+                <td><strong style="color: {'#ef4444' if r.get('is_suspicious') else '#10b981'};">{r_susp}</strong></td>
+            </tr>
+            """
+
+        emb_objs = struct.get("embedded_objects", [])
+        emb_objs_rows = ""
+        for o in emb_objs:
+            o_name = html.escape(str(o.get("filename") or o.get("part_name") or "embedded_object"))
+            o_type = html.escape(str(o.get("type", "")))
+            o_size = o.get("size_bytes", 0)
+            emb_objs_rows += f"""
+            <tr>
+                <td>{o_name}</td>
+                <td>{o_type}</td>
+                <td>{o_size} bytes</td>
+            </tr>
+            """
 
         incomplete_banner = ""
         if analysis_status == "PARTIAL":
@@ -369,7 +404,7 @@ class ReportGenerator:
         <div class="card">
             <h3>File Size & Format</h3>
             <div class="value">{ident.get('file_size_bytes', 0)} B</div>
-            <div style="color: #94a3b8; font-size: 0.85rem;">Format: {safe_fmt} | Entropy: {ident.get('file_entropy', 0.0)}</div>
+            <div style="color: #94a3b8; font-size: 0.85rem;">Format: {safe_fmt} ({safe_pkg}) | Entropy: {ident.get('file_entropy', 0.0)}</div>
         </div>
         <div class="card">
             <h3>VBA Macros & SDI</h3>
@@ -395,6 +430,26 @@ class ReportGenerator:
 
     <h2>Synthesized YARA Detection Signature</h2>
     <pre>{safe_yara_rule}</pre>
+
+    <h2>External Relationships & Templates</h2>
+    <table>
+        <thead>
+            <tr><th>Target URI</th><th>Relationship Type</th><th>Source Part</th><th>Suspicious</th></tr>
+        </thead>
+        <tbody>
+            {ext_rels_rows if ext_rels_rows else '<tr><td colspan="4" style="text-align:center;">No external relationships detected.</td></tr>'}
+        </tbody>
+    </table>
+
+    <h2>Embedded Objects & Packages</h2>
+    <table>
+        <thead>
+            <tr><th>Object Identifier</th><th>Type / Classification</th><th>Size</th></tr>
+        </thead>
+        <tbody>
+            {emb_objs_rows if emb_objs_rows else '<tr><td colspan="3" style="text-align:center;">No embedded objects detected.</td></tr>'}
+        </tbody>
+    </table>
 
     <h2>Document Streams & Entropy</h2>
     <table>

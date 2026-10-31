@@ -8,9 +8,11 @@ import os
 import re
 import shutil
 import tempfile
+import zipfile
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
+import olefile
 
 from core.hashing import calculate_hashes, shannon_entropy
 
@@ -19,7 +21,23 @@ from core.hashing import calculate_hashes, shannon_entropy
 OLE_MAGIC = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
 ZIP_MAGIC = b"\x50\x4B\x03\x04"
 
-SUPPORTED_EXTENSIONS = {".doc", ".docm", ".xls", ".xlsm"}
+# Supported Office Format Extensions
+WORD_OLE_EXTENSIONS = {".doc", ".dot"}
+WORD_OPENXML_EXTENSIONS = {".docx", ".docm", ".dotx", ".dotm"}
+WORD_EXTENSIONS = WORD_OLE_EXTENSIONS | WORD_OPENXML_EXTENSIONS
+
+EXCEL_OLE_EXTENSIONS = {".xls", ".xlt"}
+EXCEL_OPENXML_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
+EXCEL_EXTENSIONS = EXCEL_OLE_EXTENSIONS | EXCEL_OPENXML_EXTENSIONS
+
+PPT_OLE_EXTENSIONS = {".ppt"}
+PPT_OPENXML_EXTENSIONS = {".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm"}
+PPT_EXTENSIONS = PPT_OLE_EXTENSIONS | PPT_OPENXML_EXTENSIONS
+
+ALL_OLE_EXTENSIONS = WORD_OLE_EXTENSIONS | EXCEL_OLE_EXTENSIONS | PPT_OLE_EXTENSIONS
+ALL_OPENXML_EXTENSIONS = WORD_OPENXML_EXTENSIONS | EXCEL_OPENXML_EXTENSIONS | PPT_OPENXML_EXTENSIONS
+SUPPORTED_EXTENSIONS = ALL_OLE_EXTENSIONS | ALL_OPENXML_EXTENSIONS
+
 DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
@@ -39,6 +57,7 @@ class IngestedDocument:
     file_entropy: float
     detected_format: str  # "OLE" or "OpenXML" or "UNSUPPORTED"
     extension: str
+    package_type: str = "Unknown"  # "Word", "Excel", "PowerPoint", "Generic"
     is_valid: bool = True
     error_message: Optional[str] = None
     validation_notes: List[str] = field(default_factory=list)
@@ -62,13 +81,108 @@ def verify_file_signature(data_header: bytes) -> str:
     Inspect the file header bytes to identify format family.
     Returns 'OLE', 'OpenXML', or 'UNKNOWN'.
     """
-    if len(data_header) < 8:
+    if len(data_header) < 4:
         return "TOO_SHORT"
-    if data_header.startswith(OLE_MAGIC):
+    if data_header.startswith(OLE_MAGIC[:4]):
         return "OLE"
     if data_header.startswith(ZIP_MAGIC):
         return "OpenXML"
     return "UNKNOWN"
+
+
+def detect_package_type_and_check_consistency(file_path: Path, detected_format: str, ext: str) -> Tuple[str, List[str]]:
+    """
+    Inspect internal package structure to identify application (Word, Excel, PowerPoint)
+    and validate consistency against the declared file extension.
+    Never executes any macro, payload, or embedded code.
+    """
+    notes: List[str] = []
+    pkg_type = "Unknown"
+
+    if detected_format == "OpenXML":
+        try:
+            with zipfile.ZipFile(str(file_path), "r") as z:
+                names = [n.lower() for n in z.namelist()]
+                # Check for Word parts
+                is_word = any(n.startswith("word/") for n in names)
+                # Check for Excel parts
+                is_excel = any(n.startswith("xl/") for n in names)
+                # Check for PowerPoint parts
+                is_ppt = any(n.startswith("ppt/") for n in names)
+
+                # Secondary content-type inspection if ambiguous
+                if not (is_word or is_excel or is_ppt) and "[content_types].xml" in names:
+                    try:
+                        ct_data = z.read("[Content_Types].xml")[:16384].decode("utf-8", "ignore").lower()
+                        if "wordprocessingml" in ct_data or "application/vnd.ms-word" in ct_data:
+                            is_word = True
+                        elif "spreadsheetml" in ct_data or "application/vnd.ms-excel" in ct_data:
+                            is_excel = True
+                        elif "presentationml" in ct_data or "application/vnd.ms-powerpoint" in ct_data:
+                            is_ppt = True
+                    except Exception:
+                        pass
+
+                if is_word:
+                    pkg_type = "Word"
+                elif is_excel:
+                    pkg_type = "Excel"
+                elif is_ppt:
+                    pkg_type = "PowerPoint"
+                else:
+                    pkg_type = "OpenXML Package (Generic)"
+
+                notes.append(f"Identified OpenXML package structure: {pkg_type}.")
+
+                # Consistency checks
+                if ext in ALL_OLE_EXTENSIONS:
+                    notes.append(f"Extension mismatch: file has legacy OLE extension '{ext}' but internal container is an OpenXML ZIP package (renamed file).")
+                elif pkg_type == "Word" and ext in (EXCEL_EXTENSIONS | PPT_EXTENSIONS):
+                    notes.append(f"Package mismatch: file has extension '{ext}' but internal package corresponds to Microsoft Word.")
+                elif pkg_type == "Excel" and ext in (WORD_EXTENSIONS | PPT_EXTENSIONS):
+                    notes.append(f"Package mismatch: file has extension '{ext}' but internal package corresponds to Microsoft Excel.")
+                elif pkg_type == "PowerPoint" and ext in (WORD_EXTENSIONS | EXCEL_EXTENSIONS):
+                    notes.append(f"Package mismatch: file has extension '{ext}' but internal package corresponds to Microsoft PowerPoint.")
+
+        except Exception as e:
+            pkg_type = "OpenXML (Corrupt/Malformed)"
+            notes.append(f"OpenXML package verification note: could not read internal ZIP index ({str(e)}).")
+
+    elif detected_format == "OLE":
+        try:
+            if olefile.isOleFile(str(file_path)):
+                with olefile.OleFileIO(str(file_path)) as ole:
+                    # Check for Word
+                    if ole.exists("WordDocument"):
+                        pkg_type = "Word"
+                    # Check for Excel
+                    elif ole.exists("Workbook") or ole.exists("Book"):
+                        pkg_type = "Excel"
+                    # Check for PowerPoint
+                    elif ole.exists("PowerPoint Document") or ole.exists("Current User"):
+                        pkg_type = "PowerPoint"
+                    else:
+                        pkg_type = "OLE Container (Generic)"
+
+                    notes.append(f"Identified OLE stream structure: {pkg_type}.")
+
+                    # Consistency checks
+                    if ext in ALL_OPENXML_EXTENSIONS:
+                        notes.append(f"Extension mismatch: file has OpenXML extension '{ext}' but file signature is a legacy OLE Compound Document (renamed file).")
+                    elif pkg_type == "Word" and ext in (EXCEL_EXTENSIONS | PPT_EXTENSIONS):
+                        notes.append(f"Package mismatch: file has extension '{ext}' but internal OLE structure contains WordDocument.")
+                    elif pkg_type == "Excel" and ext in (WORD_EXTENSIONS | PPT_EXTENSIONS):
+                        notes.append(f"Package mismatch: file has extension '{ext}' but internal OLE structure contains Excel Workbook.")
+                    elif pkg_type == "PowerPoint" and ext in (WORD_EXTENSIONS | EXCEL_EXTENSIONS):
+                        notes.append(f"Package mismatch: file has extension '{ext}' but internal OLE structure contains PowerPoint Document.")
+            else:
+                pkg_type = "OLE (Malformed)"
+                notes.append("OLE verification note: header matches magic bytes but OLE structure is malformed.")
+        except Exception as e:
+            pkg_type = "OLE (Corrupt/Malformed)"
+            notes.append(f"OLE structure verification note: {str(e)}.")
+
+    return pkg_type, notes
 
 
 class IngestionManager:
@@ -158,14 +272,14 @@ class IngestionManager:
         notes = []
 
         if ext not in SUPPORTED_EXTENSIONS:
-            notes.append(f"Extension '{ext}' is not among primary targets (.doc, .docm, .xls, .xlsm).")
+            notes.append(f"Extension '{ext}' is not among supported Office extensions.")
 
         if sig_format == "OLE":
             detected = "OLE"
-            notes.append("Verified OLE Compound File Binary format (DOC/XLS).")
+            notes.append("Verified OLE Compound File Binary format.")
         elif sig_format == "OpenXML":
             detected = "OpenXML"
-            notes.append("Verified OpenXML ZIP container format (DOCM/XLSM).")
+            notes.append("Verified OpenXML ZIP container format.")
         else:
             detected = "UNSUPPORTED"
             return IngestedDocument(
@@ -177,10 +291,14 @@ class IngestionManager:
                 file_entropy=file_ent,
                 detected_format=detected,
                 extension=ext,
+                package_type="Unsupported",
                 is_valid=False,
                 error_message=f"Unsupported file signature: header {header[:8].hex()}",
                 validation_notes=notes + ["Rejected: Magic signature does not match OLE or OpenXML container."]
             )
+
+        pkg_type, pkg_notes = detect_package_type_and_check_consistency(target_path, detected, ext)
+        notes.extend(pkg_notes)
 
         return IngestedDocument(
             original_filename=file_name,
@@ -191,6 +309,7 @@ class IngestionManager:
             file_entropy=file_ent,
             detected_format=detected,
             extension=ext,
+            package_type=pkg_type,
             is_valid=True,
             error_message=None,
             validation_notes=notes

@@ -321,11 +321,11 @@ class TriagePipeline:
                 "ingestion": "COMPLETED",
                 "structural_inspection": "COMPLETED",
                 "vba_extraction": "COMPLETED" if vba.has_macros else "NOT_APPLICABLE",
-                "static_analysis": "COMPLETED",
-                "deobfuscation": "COMPLETED",
+                "static_analysis": "COMPLETED" if (vba.has_macros or structure.anomalies) else "NOT_APPLICABLE",
+                "deobfuscation": "COMPLETED" if vba.has_macros else "NOT_APPLICABLE",
                 "payload_extraction": payload_status,
-                "vba_stomping": stomping.analysis_status,
-                "shellcode_analysis": shellcode_report.analysis_status,
+                "vba_stomping": stomping.analysis_status if vba.has_macros else "NOT_APPLICABLE",
+                "shellcode_analysis": shellcode_report.analysis_status if payloads else "NOT_APPLICABLE",
                 "detection_fusion": "COMPLETED",
             }
 

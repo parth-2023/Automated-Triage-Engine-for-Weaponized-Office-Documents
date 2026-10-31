@@ -52,11 +52,39 @@ class DetectionFusionEngine:
         # Convert structural anomalies into formal findings
         all_findings = list(findings)
         for idx, anomaly in enumerate(structural_anomalies, start=1):
-            sev = "HIGH" if "High-entropy" in anomaly or "Zip slip" in anomaly or "executable" in anomaly else "LOW"
-            cat = "PAYLOAD" if "High-entropy" in anomaly or "executable" in anomaly else "OBFUSCATION"
+            anomaly_lower = anomaly.lower()
+            if "remote template" in anomaly_lower or "attachedtemplate" in anomaly_lower:
+                sev = "HIGH"
+                cat = "EXECUTION"
+                ind_name = "RemoteTemplateInjection"
+            elif "protocol" in anomaly_lower:
+                sev = "HIGH"
+                cat = "EXECUTION"
+                ind_name = "SuspiciousProtocolHandler"
+            elif "external relationship" in anomaly_lower:
+                sev = "MEDIUM"
+                cat = "PAYLOAD"
+                ind_name = "ExternalRelationship"
+            elif "embedded object" in anomaly_lower or "ole10native" in anomaly_lower:
+                sev = "HIGH" if "ole10native" in anomaly_lower else "MEDIUM"
+                cat = "PAYLOAD"
+                ind_name = "EmbeddedOleObject"
+            elif "mismatch" in anomaly_lower:
+                sev = "MEDIUM"
+                cat = "OBFUSCATION"
+                ind_name = "ExtensionMismatch"
+            elif "high-entropy" in anomaly_lower or "zip slip" in anomaly_lower or "executable" in anomaly_lower:
+                sev = "HIGH"
+                cat = "PAYLOAD"
+                ind_name = "StructuralAnomaly"
+            else:
+                sev = "LOW"
+                cat = "OBFUSCATION"
+                ind_name = "StructuralAnomaly"
+
             all_findings.append(Finding(
                 finding_id=f"STRUCT_ANOMALY_{idx}",
-                indicator_name="StructuralAnomaly",
+                indicator_name=ind_name,
                 category=cat,
                 severity=sev,
                 evidence=anomaly,
@@ -84,13 +112,24 @@ class DetectionFusionEngine:
             cat_counts[f.category] = cat_counts.get(f.category, 0) + 1
 
         # 3. Indicator presence tracking
-        has_auto = any(f.category == "EXECUTION" and "trigger" in f.detection_method.lower() or f.indicator_name in ["AutoOpen", "Document_Open", "Workbook_Open", "AutoExec"] for f in deduped)
+        has_auto = any(
+            (f.category == "EXECUTION" and "trigger" in f.detection_method.lower()) or
+            f.indicator_name in ["AutoOpen", "Document_Open", "Workbook_Open", "AutoExec", "RemoteTemplateInjection"]
+            for f in deduped
+        )
         has_alloc = any(f.indicator_name in ["Win32API_VirtualAlloc", "Win32API_VirtualAllocEx"] for f in deduped)
         has_copy = any(f.indicator_name in ["Win32API_RtlMoveMemory", "Win32API_WriteProcessMemory"] for f in deduped)
         has_thread = any(f.indicator_name in ["Win32API_CreateThread", "Win32API_CreateRemoteThread"] for f in deduped)
         has_payload = any(f.category == "PAYLOAD" for f in deduped)
         has_stomping = any(f.category == "STOMPING" for f in deduped)
-        has_c2 = any("URLDownload" in f.indicator_name or "InternetOpen" in f.indicator_name or "Powershell" in f.indicator_name for f in deduped)
+        has_c2 = any(
+            "URLDownload" in f.indicator_name or
+            "InternetOpen" in f.indicator_name or
+            "Powershell" in f.indicator_name or
+            "RemoteTemplate" in f.indicator_name or
+            "Protocol" in f.indicator_name
+            for f in deduped
+        )
 
         # 4. Multi-stage correlation
         correlated: List[CorrelatedAttackPattern] = []

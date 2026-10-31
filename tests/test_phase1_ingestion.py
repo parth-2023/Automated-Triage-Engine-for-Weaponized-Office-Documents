@@ -114,6 +114,51 @@ class TestDocumentInspection:
         res = DocumentInspector.inspect(fixtures["zip_slip"], "OpenXML")
         assert any("Zip slip" in anomaly for anomaly in res.anomalies)
 
+    def test_inspect_docx(self, fixtures):
+        res = DocumentInspector.inspect(fixtures["valid_docx"], "OpenXML")
+        assert res.is_corrupt is False
+        assert res.package_type == "Word"
+        assert res.has_vba_project is False
+
+    def test_inspect_xlsx(self, fixtures):
+        res = DocumentInspector.inspect(fixtures["valid_xlsx"], "OpenXML")
+        assert res.is_corrupt is False
+        assert res.package_type == "Excel"
+        assert res.has_vba_project is False
+
+    def test_inspect_pptx(self, fixtures):
+        res = DocumentInspector.inspect(fixtures["valid_pptx"], "OpenXML")
+        assert res.is_corrupt is False
+        assert res.package_type == "PowerPoint"
+        assert res.has_vba_project is False
+
+    def test_inspect_ppt_ole(self, fixtures):
+        res = DocumentInspector.inspect(fixtures["valid_ppt"], "OLE")
+        assert res.is_corrupt is False
+        assert res.package_type == "PowerPoint"
+
+    def test_inspect_external_relationships(self, fixtures):
+        res = DocumentInspector.inspect(fixtures["docx_remote_template"], "OpenXML")
+        assert len(res.external_relationships) > 0
+        rel = res.external_relationships[0]
+        assert "malicious-c2" in rel["target"]
+        assert rel["is_suspicious"] is True
+        assert any("remote template injection" in a.lower() for a in res.anomalies)
+
+    def test_inspect_embedded_objects(self, fixtures):
+        res = DocumentInspector.inspect(fixtures["docx_embedded_ole"], "OpenXML")
+        assert len(res.embedded_objects) > 0
+        assert any("Embedded object detected" in a for a in res.anomalies)
+
+    def test_extension_mismatch_detection(self, fixtures):
+        # OLE file named .docx
+        res = DocumentInspector.inspect(fixtures["docx_mismatched_ole"], "OLE")
+        assert any("Extension mismatch" in a for a in res.anomalies)
+
+        # Word package named .xlsx
+        res2 = DocumentInspector.inspect(fixtures["xlsx_mismatched_word"], "OpenXML")
+        assert any("Extension mismatch" in a for a in res2.anomalies)
+
 
 class TestMetadataExtraction:
     def test_openxml_metadata(self, fixtures):

